@@ -1,0 +1,29 @@
+From 9d81aac8e0c2a6e1aa968581a9c77cec7468cd60 Mon Sep 17 00:00:00 2001
+From: Evelyn Tsai <evelyn.tsai@mediatek.com>
+Date: Wed, 10 May 2023 13:11:34 +0800
+Subject: [PATCH 45/54] mtk: hostapd: update eht operation element
+
+---
+ src/ap/ieee802_11_eht.c | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/src/ap/ieee802_11_eht.c b/src/ap/ieee802_11_eht.c
+index 9a07f7501..f132e1d9c 100644
+--- a/src/ap/ieee802_11_eht.c
++++ b/src/ap/ieee802_11_eht.c
+@@ -215,9 +215,9 @@ u8 * hostapd_eid_eht_operation(struct hostapd_data *hapd, u8 *eid)
+ 
+ 	/* TODO: Fill in appropriate EHT-MCS max Nss information */
+ 	oper->basic_eht_mcs_nss_set[0] = 0x11;
+-	oper->basic_eht_mcs_nss_set[1] = 0x00;
+-	oper->basic_eht_mcs_nss_set[2] = 0x00;
+-	oper->basic_eht_mcs_nss_set[3] = 0x00;
++	oper->basic_eht_mcs_nss_set[1] = 0x11;
++	oper->basic_eht_mcs_nss_set[2] = 0x11;
++	oper->basic_eht_mcs_nss_set[3] = 0x11;
+ 
+ 	if (is_6ghz_op_class(conf->op_class))
+ 		chwidth = op_class_to_ch_width(conf->op_class);
+-- 
+2.18.0
+

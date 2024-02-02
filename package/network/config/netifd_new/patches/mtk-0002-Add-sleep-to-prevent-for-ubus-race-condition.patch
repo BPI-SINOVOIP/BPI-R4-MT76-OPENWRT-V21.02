@@ -1,0 +1,26 @@
+From ef0b42d6421e56a49ac44d9b2ed727905e2a35fc Mon Sep 17 00:00:00 2001
+From: "Allen.Ye" <allen.ye@mediatek.com>
+Date: Tue, 2 May 2023 10:44:27 +0800
+Subject: [PATCH] Add sleep to prevent for ubus race condition
+
+---
+ wireless.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/wireless.c b/wireless.c
+index 027a57c..f0fc0a8 100644
+--- a/wireless.c
++++ b/wireless.c
+@@ -459,6 +459,9 @@ wireless_device_run_handler(struct wireless_device *wdev, bool up)
+ 
+ 	netifd_start_process(argv, NULL, &wdev->script_task);
+ 
++	// sleep to prevent ubus call hostapd race condition
++	sleep(1);
++
+ 	if (fds[1] >= 0)
+ 		close(fds[1]);
+ 
+-- 
+2.18.0
+

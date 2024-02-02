@@ -1,0 +1,98 @@
+From d330b76bc26aadb42a30eed71e3dd739fc795352 Mon Sep 17 00:00:00 2001
+From: Howard Hsu <howard-yh.hsu@mediatek.com>
+Date: Fri, 22 Dec 2023 10:53:00 +0800
+Subject: [PATCH 1044/1044] mtk: wifi: mt76: mt7996: support disable muru debug
+ info when recording fwlog
+
+When we record fwlog, we will also enable recording muru debug info log by
+default. However, in certain test scenarios, this can result in
+recording too many logs, causing inconvenience during issue analysis.
+Therefore, this commit adds an debug option, fw_debug_muru_disable, in
+debugfs. User can modify this option to enable/disable recording muru
+debug info log.
+
+[Usage]
+Set:
+$ echo val > debugfs/fw_debug_muru_disable
+Get:
+$ cat debugfs/fw_debug_muru_disable
+
+val can be the following values:
+0 = enable recording muru debug info (Default value)
+1 = disable recording muru debug info
+
+Signed-off-by: Howard Hsu <howard-yh.hsu@mediatek.com>
+---
+ mt7996/debugfs.c | 29 +++++++++++++++++++++++++++++
+ mt7996/mt7996.h  |  1 +
+ 2 files changed, 30 insertions(+)
+
+diff --git a/mt7996/debugfs.c b/mt7996/debugfs.c
+index cceabf00..cdd284b7 100644
+--- a/mt7996/debugfs.c
++++ b/mt7996/debugfs.c
+@@ -463,6 +463,9 @@ mt7996_fw_debug_muru_set(void *data)
+ 	} debug;
+ 	int ret;
+ 
++	if (dev->fw_debug_muru_disable)
++		return 0;
++
+ 	for (debug = DEBUG_BSRP_STATUS; debug <= DEBUG_MEC_UPDATE_AMSDU; debug++) {
+ 		ret = mt7996_mcu_muru_dbg_info(dev, debug,
+ 					       dev->fw_debug_bin & BIT(0));
+@@ -867,6 +870,30 @@ mt7996_rf_regval_set(void *data, u64 val)
+ DEFINE_DEBUGFS_ATTRIBUTE(fops_rf_regval, mt7996_rf_regval_get,
+ 			 mt7996_rf_regval_set, "0x%08llx\n");
+ 
++static int
++mt7996_fw_debug_muru_disable_set(void *data, u64 val)
++{
++	struct mt7996_dev *dev = data;
++
++	dev->fw_debug_muru_disable = !!val;
++
++	return 0;
++}
++
++static int
++mt7996_fw_debug_muru_disable_get(void *data, u64 *val)
++{
++	struct mt7996_dev *dev = data;
++
++	*val = dev->fw_debug_muru_disable;
++
++	return 0;
++}
++
++DEFINE_DEBUGFS_ATTRIBUTE(fops_fw_debug_muru_disable,
++			 mt7996_fw_debug_muru_disable_get,
++			 mt7996_fw_debug_muru_disable_set, "%lld\n");
++
+ int mt7996_init_debugfs(struct mt7996_phy *phy)
+ {
+ 	struct mt7996_dev *dev = phy->dev;
+@@ -902,6 +929,8 @@ int mt7996_init_debugfs(struct mt7996_phy *phy)
+ 		debugfs_create_devm_seqfile(dev->mt76.dev, "rdd_monitor", dir,
+ 					    mt7996_rdd_monitor);
+ 	}
++	debugfs_create_file("fw_debug_muru_disable", 0600, dir, dev,
++			    &fops_fw_debug_muru_disable);
+ 
+ 	if (phy == &dev->phy)
+ 		dev->debugfs_dir = dir;
+diff --git a/mt7996/mt7996.h b/mt7996/mt7996.h
+index 95db69ca..2227c08a 100644
+--- a/mt7996/mt7996.h
++++ b/mt7996/mt7996.h
+@@ -472,6 +472,7 @@ struct mt7996_dev {
+ 	u8 fw_debug_wa;
+ 	u8 fw_debug_bin;
+ 	u16 fw_debug_seq;
++	bool fw_debug_muru_disable;
+ 
+ 	struct dentry *debugfs_dir;
+ 	struct rchan *relay_fwlog;
+-- 
+2.18.0
+

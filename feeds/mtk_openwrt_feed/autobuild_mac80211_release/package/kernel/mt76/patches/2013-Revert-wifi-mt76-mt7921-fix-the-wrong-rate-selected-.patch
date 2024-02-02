@@ -1,0 +1,41 @@
+From 877b1fb4df6f2302b0eecbaf4311a1c432ee3c3a Mon Sep 17 00:00:00 2001
+From: Peter Chiu <chui-hao.chiu@mediatek.com>
+Date: Mon, 23 Oct 2023 10:25:13 +0800
+Subject: [PATCH 71/76] Revert "wifi: mt76: mt7921: fix the wrong rate selected
+ in fw for the chanctx driver"
+
+This reverts commit 9fc37b0ac5467cfe5e3d2ad8a29e9a7646ece2be.
+---
+ mt76_connac_mcu.c | 9 ++-------
+ 1 file changed, 2 insertions(+), 7 deletions(-)
+
+diff --git a/mt76_connac_mcu.c b/mt76_connac_mcu.c
+index 4a7b694..e359388 100644
+--- a/mt76_connac_mcu.c
++++ b/mt76_connac_mcu.c
+@@ -847,9 +847,7 @@ void mt76_connac_mcu_sta_tlv(struct mt76_phy *mphy, struct sk_buff *skb,
+ 			     struct ieee80211_vif *vif,
+ 			     u8 rcpi, u8 sta_state)
+ {
+-	struct mt76_vif *mvif = (struct mt76_vif *)vif->drv_priv;
+-	struct cfg80211_chan_def *chandef = mvif->ctx ?
+-					    &mvif->ctx->def : &mphy->chandef;
++	struct cfg80211_chan_def *chandef = &mphy->chandef;
+ 	enum nl80211_band band = chandef->chan->band;
+ 	struct mt76_dev *dev = mphy->dev;
+ 	struct sta_rec_ra_info *ra_info;
+@@ -1355,10 +1353,7 @@ EXPORT_SYMBOL_GPL(mt76_connac_get_phy_mode);
+ const struct ieee80211_sta_he_cap *
+ mt76_connac_get_he_phy_cap(struct mt76_phy *phy, struct ieee80211_vif *vif)
+ {
+-	struct mt76_vif *mvif = (struct mt76_vif *)vif->drv_priv;
+-	struct cfg80211_chan_def *chandef = mvif->ctx ?
+-					    &mvif->ctx->def : &phy->chandef;
+-	enum nl80211_band band = chandef->chan->band;
++	enum nl80211_band band = phy->chandef.chan->band;
+ 	struct ieee80211_supported_band *sband;
+ 
+ 	sband = phy->hw->wiphy->bands[band];
+-- 
+2.18.0
+

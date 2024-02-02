@@ -1,0 +1,38 @@
+on: [push, pull_request]
+
+
+jobs:
+  unit:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ "ubuntu", "windows", "macos" ]
+        go: [ "1.18.x", "1.19.x", "1.20.x" ]
+    runs-on: ${{ matrix.os }}-latest
+    name: Unit tests (${{ matrix.os}}, Go ${{ matrix.go }})
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-go@v3
+        with:
+          go-version: ${{ matrix.go }}
+      - run: go version
+      - name: Run tests
+        env:
+          TIMESCALE_FACTOR: 10
+        run: go run github.com/onsi/ginkgo/v2/ginkgo -r -v -cover -randomize-all -randomize-suites -trace -skip-package integrationtests
+      - name: Run tests (32 bit)
+        if: ${{ matrix.os != 'macos' }} # can't run 32 bit tests on OSX.
+        env:
+          TIMESCALE_FACTOR: 10
+          GOARCH: 386
+        run: go run github.com/onsi/ginkgo/v2/ginkgo -r -v -cover -coverprofile coverage.txt -output-dir . -randomize-all -randomize-suites -trace -skip-package integrationtests
+      - name: Run tests with race detector
+        if: ${{ matrix.os == 'ubuntu' }} # speed things up. Windows and OSX VMs are slow
+        env:
+          TIMESCALE_FACTOR: 20
+        run: go run github.com/onsi/ginkgo/v2/ginkgo -r -v -race -randomize-all -randomize-suites -trace -skip-package integrationtests
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v1
+        with:
+          file: coverage.txt
+          env_vars: OS=${{ matrix.os }}, GO=${{ matrix.go }}

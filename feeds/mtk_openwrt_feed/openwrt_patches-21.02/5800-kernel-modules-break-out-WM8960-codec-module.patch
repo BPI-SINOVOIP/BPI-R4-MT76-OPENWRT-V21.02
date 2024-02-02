@@ -1,0 +1,39 @@
+From 25ddc6e4372ab20c7d2fa45b98b4288bcad932ec Mon Sep 17 00:00:00 2001
+From: Daniel Golle <daniel@makrotopia.org>
+Date: Mon, 11 Dec 2023 00:24:40 +0000
+Subject: [PATCH 1/2] kernel: modules: break-out WM8960 codec module
+
+Package codec module for WM8960 in its own package to be used by more
+than one target.
+
+Signed-off-by: Daniel Golle <daniel@makrotopia.org>
+---
+ package/kernel/linux/modules/sound.mk | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/package/kernel/linux/modules/sound.mk b/package/kernel/linux/modules/sound.mk
+index 2bfa146207..62a31bfb11 100644
+--- a/package/kernel/linux/modules/sound.mk
++++ b/package/kernel/linux/modules/sound.mk
+@@ -254,6 +254,18 @@ endef
+ $(eval $(call KernelPackage,sound-soc-imx-sgtl5000))
+ 
+ 
++define KernelPackage/sound-soc-wm8960
++  TITLE:=SoC WM8960 codec support
++  KCONFIG:=CONFIG_SND_SOC_WM8960
++  FILES:=$(LINUX_DIR)/sound/soc/codecs/snd-soc-wm8960.ko
++  DEPENDS:=+kmod-sound-soc-core +kmod-i2c-core +kmod-regmap-i2c
++  AUTOLOAD:=$(call AutoProbe,snd-soc-wm8960)
++  $(call AddDepends/sound)
++endef
++
++$(eval $(call KernelPackage,sound-soc-wm8960))
++
++
+ define KernelPackage/sound-soc-spdif
+   TITLE:=SoC S/PDIF codec support
+   KCONFIG:=CONFIG_SND_SOC_SPDIF
+-- 
+2.18.0
+

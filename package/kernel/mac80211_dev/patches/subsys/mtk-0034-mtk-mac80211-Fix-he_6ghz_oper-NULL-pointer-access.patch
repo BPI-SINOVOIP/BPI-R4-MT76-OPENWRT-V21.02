@@ -1,0 +1,33 @@
+From 2ae2bae36bb0fb44107f6f01fff4c6f03f5db754 Mon Sep 17 00:00:00 2001
+From: Michael-CY Lee <michael-cy.lee@mediatek.com>
+Date: Tue, 21 Nov 2023 10:16:31 +0800
+Subject: [PATCH 34/37] mtk: mac80211: Fix he_6ghz_oper NULL pointer access
+
+Signed-off-by: Michael Lee <michael-cy.lee@mediatek.com>
+---
+ include/linux/ieee80211.h | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/include/linux/ieee80211.h b/include/linux/ieee80211.h
+index 3308e85..a23ec4c 100644
+--- a/include/linux/ieee80211.h
++++ b/include/linux/ieee80211.h
+@@ -2671,12 +2671,14 @@ ieee80211_he_oper_size(const u8 *he_oper_ie)
+ static inline const struct ieee80211_he_6ghz_oper *
+ ieee80211_he_6ghz_oper(const struct ieee80211_he_operation *he_oper)
+ {
+-	const u8 *ret = (const void *)&he_oper->optional;
++	const u8 *ret;
+ 	u32 he_oper_params;
+ 
+ 	if (!he_oper)
+ 		return NULL;
+ 
++	ret = (const void *)&he_oper->optional;
++
+ 	he_oper_params = le32_to_cpu(he_oper->he_oper_params);
+ 
+ 	if (!(he_oper_params & IEEE80211_HE_OPERATION_6GHZ_OP_INFO))
+-- 
+2.18.0
+

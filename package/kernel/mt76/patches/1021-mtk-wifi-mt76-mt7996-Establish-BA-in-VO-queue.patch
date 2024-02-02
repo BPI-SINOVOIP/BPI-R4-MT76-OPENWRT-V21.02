@@ -1,0 +1,25 @@
+From a3ffaab9ec8b6e38ca624bf92cc52fae318783d5 Mon Sep 17 00:00:00 2001
+From: MeiChia Chiu <meichia.chiu@mediatek.com>
+Date: Tue, 1 Aug 2023 16:02:28 +0800
+Subject: [PATCH 1021/1044] mtk: wifi: mt76: mt7996: Establish BA in VO queue
+
+---
+ mt7996/mac.c | 2 --
+ 1 file changed, 2 deletions(-)
+
+diff --git a/mt7996/mac.c b/mt7996/mac.c
+index b92d7fe9..618c1f40 100644
+--- a/mt7996/mac.c
++++ b/mt7996/mac.c
+@@ -1032,8 +1032,6 @@ mt7996_tx_check_aggr(struct ieee80211_sta *sta, struct sk_buff *skb)
+ 		return;
+ 
+ 	tid = skb->priority & IEEE80211_QOS_CTL_TID_MASK;
+-	if (tid >= 6) /* skip VO queue */
+-		return;
+ 
+ 	if (is_8023) {
+ 		fc = IEEE80211_FTYPE_DATA |
+-- 
+2.18.0
+

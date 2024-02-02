@@ -1,0 +1,26 @@
+From 695e63f81f817c302e4594e44b49e1f7a8c7969c Mon Sep 17 00:00:00 2001
+From: Michael-CY Lee <michael-cy.lee@mediatek.com>
+Date: Fri, 1 Sep 2023 15:31:24 +0800
+Subject: [PATCH 38/54] mtk: hostapd: avoid color switch when beacon is not set
+
+Signed-off-by: Michael-CY Lee <michael-cy.lee@mediatek.com>
+---
+ src/ap/hostapd.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/ap/hostapd.c b/src/ap/hostapd.c
+index ec7677f6a..2b563a572 100644
+--- a/src/ap/hostapd.c
++++ b/src/ap/hostapd.c
+@@ -4250,7 +4250,7 @@ void hostapd_switch_color(struct hostapd_data *hapd, u64 bitmap)
+ {
+ 	struct os_reltime now;
+ 
+-	if (hapd->cca_in_progress)
++	if (hapd->cca_in_progress || !hapd->beacon_set_done)
+ 		return;
+ 
+ 	if (os_get_reltime(&now))
+-- 
+2.18.0
+

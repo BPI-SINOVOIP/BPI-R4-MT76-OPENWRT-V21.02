@@ -1,0 +1,54 @@
+From be61f9b1bd2f3c7bcd935968d8709565f6b231b5 Mon Sep 17 00:00:00 2001
+From: mtk20656 <chank.chen@mediatek.com>
+Date: Mon, 24 Jul 2023 11:30:27 +0800
+Subject: [PATCH 31/54] mtk: hostapd: add extension IE list for non-inherit IE
+ in mbssid
+
+Certain clients do not scan all non tx profiles due to absence of
+element ID extension list which is mandatory field in non inheritance
+IE. Non inheritance Element ID is followed by extension element ID.
+Length is expected to be mentioned. Currently we do not support any
+extension element and hence filling length as 0.
+
+Signed-off-by: mtk20656 <chank.chen@mediatek.com>
+---
+ src/ap/ieee802_11.c | 9 +++++++--
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+ mode change 100644 => 100755 src/ap/ieee802_11.c
+
+diff --git a/src/ap/ieee802_11.c b/src/ap/ieee802_11.c
+old mode 100644
+new mode 100755
+index 110ad8c2e..e05a06b09
+--- a/src/ap/ieee802_11.c
++++ b/src/ap/ieee802_11.c
+@@ -7659,7 +7659,7 @@ static size_t hostapd_eid_mbssid_elem_len(struct hostapd_data *hapd,
+ 		else if (hapd->conf->xrates_supported)
+ 			ie_count++;
+ 		if (ie_count)
+-			nontx_profile_len += 4 + ie_count;
++			nontx_profile_len += 5 + ie_count;
+ 
+ 		if (len + nontx_profile_len > 255)
+ 			break;
+@@ -7800,11 +7800,16 @@ static u8 * hostapd_eid_mbssid_elem(struct hostapd_data *hapd, u8 *eid, u8 *end,
+ 			non_inherit_ie[ie_count++] = WLAN_EID_EXT_SUPP_RATES;
+ 		if (ie_count) {
+ 			*eid++ = WLAN_EID_EXTENSION;
+-			*eid++ = 2 + ie_count;
++			*eid++ = 3 + ie_count;
+ 			*eid++ = WLAN_EID_EXT_NON_INHERITANCE;
+ 			*eid++ = ie_count;
+ 			os_memcpy(eid, non_inherit_ie, ie_count);
+ 			eid += ie_count;
++			/* Element ID extension list is mandatory part of non inheritance IE.
++			 * It has a length field followed by extension IEs. Currently no
++			 * extension IEs are supported so filling length as 0.
++			 */
++			*eid++ = 0;
+ 		}
+ 
+ 		*eid_len_pos = (eid - eid_len_pos) - 1;
+-- 
+2.18.0
+

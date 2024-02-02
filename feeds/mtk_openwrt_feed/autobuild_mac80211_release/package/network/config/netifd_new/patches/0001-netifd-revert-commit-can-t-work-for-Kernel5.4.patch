@@ -1,0 +1,709 @@
+From a7e24be75b6a05bc06073163c124f4d17eb1e963 Mon Sep 17 00:00:00 2001
+From: Evelyn Tsai <evelyn.tsai@mediatek.com>
+Date: Sun, 17 Sep 2023 12:28:35 +0800
+Subject: [PATCH] netifd: revert: commit can't work for Kernel5.4
+
+Revert "make_ethtool_modes_h.sh: apply anti-bashism"
+This reverts commit 1a07f1dff32b3af49e39533e33e8964b59535662.
+Revert "system-linux: switch to new ETHTOOL_xLINKSETTINGS API"
+This reverts commit f429bd94f99e55548bf4fa8156c165017ce3c41c.
+---
+ CMakeLists.txt          |   8 -
+ device.c                |  35 ----
+ device.h                |  15 --
+ make_ethtool_modes_h.sh |  66 -------
+ system-linux.c          | 406 +++++++++-------------------------------
+ 5 files changed, 87 insertions(+), 443 deletions(-)
+ delete mode 100755 make_ethtool_modes_h.sh
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 8064485..5ad8695 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -49,13 +49,6 @@ IF (NOT DEFINED LIBNL_LIBS)
+ 	ENDIF()
+ ENDIF()
+ 
+-ADD_CUSTOM_COMMAND(
+-	OUTPUT ethtool-modes.h
+-	COMMAND ./make_ethtool_modes_h.sh ${CMAKE_C_COMPILER} > ./ethtool-modes.h
+-	DEPENDS ./make_ethtool_modes_h.sh
+-)
+-ADD_CUSTOM_TARGET(ethtool-modes-h DEPENDS ethtool-modes.h)
+-
+ IF("${CMAKE_SYSTEM_NAME}" MATCHES "Linux" AND NOT DUMMY_MODE)
+ 	SET(SOURCES ${SOURCES} system-linux.c)
+ 	SET(LIBS ${LIBS} ${LIBNL_LIBS})
+@@ -79,4 +72,3 @@ TARGET_LINK_LIBRARIES(netifd ${LIBS})
+ INSTALL(TARGETS netifd
+ 	RUNTIME DESTINATION sbin
+ )
+-ADD_DEPENDENCIES(netifd ethtool-modes-h)
+diff --git a/device.c b/device.c
+index 1370335..0474c65 100644
+--- a/device.c
++++ b/device.c
+@@ -67,11 +67,6 @@ static const struct blobmsg_policy dev_attrs[__DEV_ATTR_MAX] = {
+ 	[DEV_ATTR_SPEED] = { .name = "speed", .type = BLOBMSG_TYPE_INT32 },
+ 	[DEV_ATTR_DUPLEX] = { .name = "duplex", .type = BLOBMSG_TYPE_BOOL },
+ 	[DEV_ATTR_VLAN] = { .name = "vlan", .type = BLOBMSG_TYPE_ARRAY },
+-	[DEV_ATTR_PAUSE] = { .name = "pause", .type = BLOBMSG_TYPE_BOOL },
+-	[DEV_ATTR_ASYM_PAUSE] = { .name = "asym_pause", .type = BLOBMSG_TYPE_BOOL },
+-	[DEV_ATTR_RXPAUSE] = { .name = "rxpause", .type = BLOBMSG_TYPE_BOOL },
+-	[DEV_ATTR_TXPAUSE] = { .name = "txpause", .type = BLOBMSG_TYPE_BOOL },
+-	[DEV_ATTR_AUTONEG] = { .name = "autoneg", .type = BLOBMSG_TYPE_BOOL },
+ 	[DEV_ATTR_GRO] = { .name = "gro", .type = BLOBMSG_TYPE_BOOL },
+ 	[DEV_ATTR_MASTER] = { .name = "conduit", .type = BLOBMSG_TYPE_STRING },
+ 	[DEV_ATTR_EEE] = { .name = "eee", .type = BLOBMSG_TYPE_BOOL },
+@@ -294,11 +289,6 @@ device_merge_settings(struct device *dev, struct device_settings *n)
+ 	n->auth = s->flags & DEV_OPT_AUTH ? s->auth : os->auth;
+ 	n->speed = s->flags & DEV_OPT_SPEED ? s->speed : os->speed;
+ 	n->duplex = s->flags & DEV_OPT_DUPLEX ? s->duplex : os->duplex;
+-	n->pause = s->flags & DEV_OPT_PAUSE ? s->pause : os->pause;
+-	n->asym_pause = s->flags & DEV_OPT_ASYM_PAUSE ? s->asym_pause : os->asym_pause;
+-	n->rxpause = s->flags & DEV_OPT_RXPAUSE ? s->rxpause : os->rxpause;
+-	n->txpause = s->flags & DEV_OPT_TXPAUSE ? s->txpause : os->txpause;
+-	n->autoneg = s->flags & DEV_OPT_AUTONEG ? s->autoneg : os->autoneg;
+ 	n->gro = s->flags & DEV_OPT_GRO ? s->gro : os->gro;
+ 	n->eee = s->flags & DEV_OPT_EEE ? s->eee : os->eee;
+ 	n->master_ifindex = s->flags & DEV_OPT_MASTER ? s->master_ifindex : os->master_ifindex;
+@@ -527,31 +517,6 @@ device_init_settings(struct device *dev, struct blob_attr **tb)
+ 		s->flags |= DEV_OPT_DUPLEX;
+ 	}
+ 
+-	if ((cur = tb[DEV_ATTR_PAUSE])) {
+-		s->pause = blobmsg_get_bool(cur);
+-		s->flags |= DEV_OPT_PAUSE;
+-	}
+-
+-	if ((cur = tb[DEV_ATTR_ASYM_PAUSE])) {
+-		s->asym_pause = blobmsg_get_bool(cur);
+-		s->flags |= DEV_OPT_ASYM_PAUSE;
+-	}
+-
+-	if ((cur = tb[DEV_ATTR_RXPAUSE])) {
+-		s->rxpause = blobmsg_get_bool(cur);
+-		s->flags |= DEV_OPT_RXPAUSE;
+-	}
+-
+-	if ((cur = tb[DEV_ATTR_TXPAUSE])) {
+-		s->txpause = blobmsg_get_bool(cur);
+-		s->flags |= DEV_OPT_TXPAUSE;
+-	}
+-
+-	if ((cur = tb[DEV_ATTR_AUTONEG])) {
+-		s->autoneg = blobmsg_get_bool(cur);
+-		s->flags |= DEV_OPT_AUTONEG;
+-	}
+-
+ 	if ((cur = tb[DEV_ATTR_GRO])) {
+ 		s->gro = blobmsg_get_bool(cur);
+ 		s->flags |= DEV_OPT_GRO;
+diff --git a/device.h b/device.h
+index b2ea0fa..9a77015 100644
+--- a/device.h
++++ b/device.h
+@@ -64,11 +64,6 @@ enum {
+ 	DEV_ATTR_SPEED,
+ 	DEV_ATTR_DUPLEX,
+ 	DEV_ATTR_VLAN,
+-	DEV_ATTR_PAUSE,
+-	DEV_ATTR_ASYM_PAUSE,
+-	DEV_ATTR_RXPAUSE,
+-	DEV_ATTR_TXPAUSE,
+-	DEV_ATTR_AUTONEG,
+ 	DEV_ATTR_GRO,
+ 	DEV_ATTR_MASTER,
+ 	DEV_ATTR_EEE,
+@@ -136,11 +131,6 @@ enum {
+ 	DEV_OPT_ARP_ACCEPT		= (1ULL << 29),
+ 	DEV_OPT_SPEED			= (1ULL << 30),
+ 	DEV_OPT_DUPLEX			= (1ULL << 31),
+-	DEV_OPT_PAUSE			= (1ULL << 32),
+-	DEV_OPT_ASYM_PAUSE		= (1ULL << 33),
+-	DEV_OPT_RXPAUSE			= (1ULL << 34),
+-	DEV_OPT_TXPAUSE			= (1ULL << 35),
+-	DEV_OPT_AUTONEG			= (1ULL << 36),
+ 	DEV_OPT_GRO			= (1ULL << 37),
+ 	DEV_OPT_MASTER			= (1ULL << 38),
+ 	DEV_OPT_EEE			= (1ULL << 39),
+@@ -221,11 +211,6 @@ struct device_settings {
+ 	bool auth;
+ 	unsigned int speed;
+ 	bool duplex;
+-	bool pause;
+-	bool asym_pause;
+-	bool rxpause;
+-	bool txpause;
+-	bool autoneg;
+ 	bool gro;
+ 	int master_ifindex;
+ 	bool eee;
+diff --git a/make_ethtool_modes_h.sh b/make_ethtool_modes_h.sh
+deleted file mode 100755
+index 7f5ac7b..0000000
+--- a/make_ethtool_modes_h.sh
++++ /dev/null
+@@ -1,66 +0,0 @@
+-#!/bin/sh
+-
+-CC="$1"
+-[ -n "$TARGET_CC_NOCACHE" ] && CC="$TARGET_CC_NOCACHE"
+-
+-cat <<EOF
+-#include <linux/ethtool.h>
+-
+-#define ETHTOOL_MODE_FULL(_speed, _mode) {					\\
+-	.speed = (_speed),							\\
+-	.bit_half = -1,								\\
+-	.bit_full = ETHTOOL_LINK_MODE_ ## _speed ## base ## _mode ## _Full_BIT,	\\
+-	.name = #_speed "base" #_mode,						\\
+-}
+-
+-#define ETHTOOL_MODE_HALF(_speed, _mode) {					\\
+-	.speed = (_speed),							\\
+-	.bit_half = ETHTOOL_LINK_MODE_ ## _speed ## base ## _mode ## _Half_BIT,	\\
+-	.bit_full = -1,								\\
+-	.name = #_speed "base" #_mode,						\\
+-}
+-
+-#define ETHTOOL_MODE_BOTH(_speed, _mode) {					\\
+-	.speed = (_speed),							\\
+-	.bit_half = ETHTOOL_LINK_MODE_ ## _speed ## base ## _mode ## _Half_BIT,	\\
+-	.bit_full = ETHTOOL_LINK_MODE_ ## _speed ## base ## _mode ## _Full_BIT,	\\
+-	.name = #_speed "base" #_mode,						\\
+-}
+-
+-static const struct {
+-	unsigned int speed;
+-	int bit_half;
+-	int bit_full;
+-	const char *name;
+-} ethtool_modes[] = {
+-EOF
+-
+-echo "#include <linux/ethtool.h>" | "$CC" -E - | \
+-	grep "ETHTOOL_LINK_MODE_[0-9]*base[A-Za-z0-9]*_...._BIT.*" | \
+-	sed -r 's/.*ETHTOOL_LINK_MODE_([0-9]*)base([A-Za-z0-9]*)_(....)_BIT.*/\1 \2 \3/' | \
+-	sort -u | LC_ALL=C sort -r -g | ( gothalf=0 ; while read -r speed mode duplex; do
+-		if [ "$duplex" = "Half" ]; then
+-			if [ "$gothalf" = "1" ]; then
+-				printf "%s" "$speed \tETHTOOL_MODE_HALF($p_speed, $p_mode),\n"
+-			fi
+-			gothalf=1
+-		elif [ "$duplex" = "Full" ]; then
+-			if [ "$gothalf" = "1" ]; then
+-				if [ "$p_speed" = "$speed" ] && [ "$p_mode" = "$mode" ]; then
+-					printf "%d \t%s\n" "$speed" "ETHTOOL_MODE_BOTH($speed, $mode),"
+-				else
+-					printf "%d \t%s\n" "$p_speed" "ETHTOOL_MODE_HALF($p_speed, $p_mode),"
+-					printf "%d \t%s\n" "$speed" "ETHTOOL_MODE_FULL($speed, $mode),"
+-				fi
+-				gothalf=0
+-			else
+-				printf "%d \t%s\n" "$speed" "ETHTOOL_MODE_FULL($speed, $mode),"
+-			fi
+-		else
+-			continue
+-		fi
+-		p_speed="$speed"
+-		p_mode="$mode"
+-	done ; [ "$gothalf" = "1" ] && printf "%d \t%s\n" "$p_speed" "ETHTOOL_MODE_HALF($p_speed, $p_mode)," ) | \
+-	LC_ALL=C sort -g | sed -r 's/[0-9]* (.*)/\1/'
+-echo "};"
+diff --git a/system-linux.c b/system-linux.c
+index cc1b5e9..5b97d86 100644
+--- a/system-linux.c
++++ b/system-linux.c
+@@ -48,8 +48,6 @@
+ 
+ #include <sched.h>
+ 
+-#include "ethtool-modes.h"
+-
+ #ifndef RTN_FAILED_POLICY
+ #define RTN_FAILED_POLICY 12
+ #endif
+@@ -1888,28 +1886,6 @@ failure:
+ }
+ #endif
+ 
+-static void ethtool_link_mode_clear_bit(__s8 nwords, int nr, __u32 *mask)
+-{
+-	if (nr < 0)
+-		return;
+-
+-	if (nr >= (nwords * 32))
+-		return;
+-
+-	mask[nr / 32] &= ~(1U << (nr % 32));
+-}
+-
+-static bool ethtool_link_mode_test_bit(__s8 nwords, int nr, const __u32 *mask)
+-{
+-	if (nr < 0)
+-		return false;
+-
+-	if (nr >= (nwords * 32))
+-		return false;
+-
+-	return !!(mask[nr / 32] & (1U << (nr % 32)));
+-}
+-
+ static int
+ system_get_ethtool_gro(struct device *dev)
+ {
+@@ -1944,55 +1920,6 @@ system_set_ethtool_gro(struct device *dev, struct device_settings *s)
+ 	ioctl(sock_ioctl, SIOCETHTOOL, &ifr);
+ }
+ 
+-static void
+-system_set_ethtool_pause(struct device *dev, struct device_settings *s)
+-{
+-	struct ethtool_pauseparam pp;
+-	struct ifreq ifr = {
+-		.ifr_data = (caddr_t)&pp,
+-	};
+-
+-	strncpy(ifr.ifr_name, dev->ifname, sizeof(ifr.ifr_name) - 1);
+-	memset(&pp, 0, sizeof(pp));
+-	pp.cmd = ETHTOOL_GPAUSEPARAM;
+-	if (ioctl(sock_ioctl, SIOCETHTOOL, &ifr))
+-		return;
+-
+-	if (s->flags & DEV_OPT_RXPAUSE || s->flags & DEV_OPT_TXPAUSE) {
+-		pp.autoneg = AUTONEG_DISABLE;
+-
+-		if (s->flags & DEV_OPT_PAUSE) {
+-			if (s->flags & DEV_OPT_RXPAUSE)
+-				pp.rx_pause = s->rxpause && s->pause;
+-			else
+-				pp.rx_pause = s->pause;
+-
+-			if (s->flags & DEV_OPT_TXPAUSE)
+-				pp.tx_pause = s->txpause && s->pause;
+-			else
+-				pp.tx_pause = s->pause;
+-		} else {
+-			if (s->flags & DEV_OPT_RXPAUSE)
+-				pp.rx_pause = s->rxpause;
+-
+-			if (s->flags & DEV_OPT_TXPAUSE)
+-				pp.tx_pause = s->txpause;
+-		}
+-
+-		if (s->flags & DEV_OPT_ASYM_PAUSE &&
+-		    !s->asym_pause && (pp.rx_pause != pp.tx_pause))
+-			pp.rx_pause = pp.tx_pause = false;
+-	} else {
+-		pp.autoneg = AUTONEG_ENABLE;
+-		/* Pause and Asym_Pause advertising bits will be set via
+-		 * ETHTOOL_SLINKSETTINGS in system_set_ethtool_settings()
+-		 */
+-	}
+-
+-	pp.cmd = ETHTOOL_SPAUSEPARAM;
+-	ioctl(sock_ioctl, SIOCETHTOOL, &ifr);
+-}
+-
+ static void
+ system_set_ethtool_eee_settings(struct device *dev, struct device_settings *s)
+ {
+@@ -2013,78 +1940,52 @@ system_set_ethtool_eee_settings(struct device *dev, struct device_settings *s)
+ static void
+ system_set_ethtool_settings(struct device *dev, struct device_settings *s)
+ {
+-	struct {
+-		struct ethtool_link_settings req;
+-		__u32 link_mode_data[3 * 127];
+-	} ecmd;
++	struct ethtool_cmd ecmd = {
++		.cmd = ETHTOOL_GSET,
++	};
+ 	struct ifreq ifr = {
+ 		.ifr_data = (caddr_t)&ecmd,
+ 	};
++	static const struct {
++		unsigned int speed;
++		uint8_t bit_half;
++		uint8_t bit_full;
++	} speed_mask[] = {
++		{ 10, ETHTOOL_LINK_MODE_10baseT_Half_BIT, ETHTOOL_LINK_MODE_10baseT_Full_BIT },
++		{ 100, ETHTOOL_LINK_MODE_100baseT_Half_BIT, ETHTOOL_LINK_MODE_100baseT_Full_BIT },
++		{ 1000, ETHTOOL_LINK_MODE_1000baseT_Half_BIT, ETHTOOL_LINK_MODE_1000baseT_Full_BIT },
++	};
++	uint32_t adv;
+ 	size_t i;
+-	__s8 nwords;
+-	__u32 *supported, *advertising;
+-
+-	system_set_ethtool_pause(dev, s);
+ 
+ 	if (s->flags & DEV_OPT_EEE)
+ 		system_set_ethtool_eee_settings(dev, s);
+ 
+-	memset(&ecmd, 0, sizeof(ecmd));
+-	ecmd.req.cmd = ETHTOOL_GLINKSETTINGS;
+ 	strncpy(ifr.ifr_name, dev->ifname, sizeof(ifr.ifr_name) - 1);
+ 
+-	if (ioctl(sock_ioctl, SIOCETHTOOL, &ifr) < 0 ||
+-	    ecmd.req.link_mode_masks_nwords >= 0 ||
+-	    ecmd.req.cmd != ETHTOOL_GLINKSETTINGS)
+-		return;
+-
+-	ecmd.req.link_mode_masks_nwords = -ecmd.req.link_mode_masks_nwords;
+-
+-	if (ioctl(sock_ioctl, SIOCETHTOOL, &ifr) < 0 ||
+-	    ecmd.req.link_mode_masks_nwords <= 0 ||
+-	    ecmd.req.cmd != ETHTOOL_GLINKSETTINGS)
++	if (ioctl(sock_ioctl, SIOCETHTOOL, &ifr) != 0)
+ 		return;
+ 
+-	nwords = ecmd.req.link_mode_masks_nwords;
+-	supported = &ecmd.link_mode_data[0];
+-	advertising = &ecmd.link_mode_data[nwords];
+-	memcpy(advertising, supported, sizeof(__u32) * nwords);
+-
+-	for (i = 0; i < ARRAY_SIZE(ethtool_modes); i++) {
++	adv = ecmd.supported;
++	for (i = 0; i < ARRAY_SIZE(speed_mask); i++) {
+ 		if (s->flags & DEV_OPT_DUPLEX) {
+-			if (s->duplex)
+-				ethtool_link_mode_clear_bit(nwords, ethtool_modes[i].bit_half, advertising);
+-			else
+-				ethtool_link_mode_clear_bit(nwords, ethtool_modes[i].bit_full, advertising);
++			int bit = s->duplex ? speed_mask[i].bit_half : speed_mask[i].bit_full;
++			adv &= ~(1 << bit);
+ 		}
+ 		if (!(s->flags & DEV_OPT_SPEED) ||
+-		    s->speed == ethtool_modes[i].speed)
++		    s->speed == speed_mask[i].speed)
+ 			continue;
+ 
+-		ethtool_link_mode_clear_bit(nwords, ethtool_modes[i].bit_full, advertising);
+-		ethtool_link_mode_clear_bit(nwords, ethtool_modes[i].bit_half, advertising);
++		adv &= ~(1 << speed_mask[i].bit_full);
++		adv &= ~(1 << speed_mask[i].bit_half);
+ 	}
+ 
+-	if (s->flags & DEV_OPT_PAUSE)
+-		if (!s->pause)
+-			ethtool_link_mode_clear_bit(nwords, ETHTOOL_LINK_MODE_Pause_BIT, advertising);
+-
+-	if (s->flags & DEV_OPT_ASYM_PAUSE)
+-		if (!s->asym_pause)
+-			ethtool_link_mode_clear_bit(nwords, ETHTOOL_LINK_MODE_Asym_Pause_BIT, advertising);
+-
+-	if (s->flags & DEV_OPT_AUTONEG) {
+-		ecmd.req.autoneg = s->autoneg ? AUTONEG_ENABLE : AUTONEG_DISABLE;
+-		if (!s->autoneg) {
+-			if (s->flags & DEV_OPT_SPEED)
+-				ecmd.req.speed = s->speed;
+-
+-			if (s->flags & DEV_OPT_DUPLEX)
+-				ecmd.req.duplex = s->duplex ? DUPLEX_FULL : DUPLEX_HALF;
+-		}
+-	}
++	if (ecmd.autoneg && ecmd.advertising == adv)
++		return;
+ 
+-	ecmd.req.cmd = ETHTOOL_SLINKSETTINGS;
++	ecmd.autoneg = 1;
++	ecmd.advertising = adv;
++	ecmd.cmd = ETHTOOL_SSET;
+ 	ioctl(sock_ioctl, SIOCETHTOOL, &ifr);
+ }
+ 
+@@ -2695,6 +2596,45 @@ read_uint64_file(int dir_fd, const char *file, uint64_t *val)
+ 	return ret;
+ }
+ 
++/* Assume advertised flags == supported flags */
++static const struct {
++	uint32_t mask;
++	const char *name;
++} ethtool_link_modes[] = {
++	{ ADVERTISED_10baseT_Half, "10baseT-H" },
++	{ ADVERTISED_10baseT_Full, "10baseT-F" },
++	{ ADVERTISED_100baseT_Half, "100baseT-H" },
++	{ ADVERTISED_100baseT_Full, "100baseT-F" },
++	{ ADVERTISED_1000baseT_Half, "1000baseT-H" },
++	{ ADVERTISED_1000baseT_Full, "1000baseT-F" },
++	{ ADVERTISED_1000baseKX_Full, "1000baseKX-F" },
++	{ ADVERTISED_2500baseX_Full, "2500baseX-F" },
++	{ ADVERTISED_10000baseT_Full, "10000baseT-F" },
++	{ ADVERTISED_10000baseKX4_Full, "10000baseKX4-F" },
++	{ ADVERTISED_10000baseKR_Full, "10000baseKR-F" },
++	{ ADVERTISED_20000baseMLD2_Full, "20000baseMLD2-F" },
++	{ ADVERTISED_20000baseKR2_Full, "20000baseKR2-F" },
++	{ ADVERTISED_40000baseKR4_Full, "40000baseKR4-F" },
++	{ ADVERTISED_40000baseCR4_Full, "40000baseCR4-F" },
++	{ ADVERTISED_40000baseSR4_Full, "40000baseSR4-F" },
++	{ ADVERTISED_40000baseLR4_Full, "40000baseLR4-F" },
++#ifdef ADVERTISED_56000baseKR4_Full
++	{ ADVERTISED_56000baseKR4_Full, "56000baseKR4-F" },
++	{ ADVERTISED_56000baseCR4_Full, "56000baseCR4-F" },
++	{ ADVERTISED_56000baseSR4_Full, "56000baseSR4-F" },
++	{ ADVERTISED_56000baseLR4_Full, "56000baseLR4-F" },
++#endif
++};
++
++static void system_add_link_modes(struct blob_buf *b, __u32 mask)
++{
++	size_t i;
++	for (i = 0; i < ARRAY_SIZE(ethtool_link_modes); i++) {
++		if (mask & ethtool_link_modes[i].mask)
++			blobmsg_add_string(b, NULL, ethtool_link_modes[i].name);
++	}
++}
++
+ bool
+ system_if_force_external(const char *ifname)
+ {
+@@ -2869,213 +2809,41 @@ ethtool_feature_value(const char *ifname, const char *keyname)
+ 	return active;
+ }
+ 
+-static void
+-system_add_link_mode_name(struct blob_buf *b, int i, bool half)
+-{
+-	char *buf;
+-
+-	/* allocate string buffer large enough for the mode name and a suffix
+-	 * "-F" or "-H" indicating full duplex or half duplex.
+-	 */
+-	buf = blobmsg_alloc_string_buffer(b, NULL, strlen(ethtool_modes[i].name) + 3);
+-	if (!buf)
+-		return;
+-
+-	strcpy(buf, ethtool_modes[i].name);
+-	if (half)
+-		strcat(buf, "-H");
+-	else
+-		strcat(buf, "-F");
+-
+-	blobmsg_add_string_buffer(b);
+-}
+-
+-static void
+-system_add_link_modes(__s8 nwords, struct blob_buf *b, __u32 *mask)
+-{
+-	size_t i;
+-
+-	for (i = 0; i < ARRAY_SIZE(ethtool_modes); i++) {
+-		if (ethtool_link_mode_test_bit(nwords, ethtool_modes[i].bit_half, mask))
+-			system_add_link_mode_name(b, i, true);
+-
+-		if (ethtool_link_mode_test_bit(nwords, ethtool_modes[i].bit_full, mask))
+-			system_add_link_mode_name(b, i, false);
+-	}
+-}
+-
+-static void
+-system_add_pause_modes(__s8 nwords, struct blob_buf *b, __u32 *mask)
+-{
+-	if (ethtool_link_mode_test_bit(nwords, ETHTOOL_LINK_MODE_Pause_BIT, mask))
+-		blobmsg_add_string(b, NULL, "pause");
+-
+-	if (ethtool_link_mode_test_bit(nwords, ETHTOOL_LINK_MODE_Asym_Pause_BIT, mask))
+-		blobmsg_add_string(b, NULL, "asym_pause");
+-}
+-
+-
+-static void
+-system_add_ethtool_pause_an(struct blob_buf *b, __s8 nwords,
+-			    __u32 *advertising, __u32 *lp_advertising)
+-{
+-	bool an_rx = false, an_tx = false;
+-	void *d;
+-
+-	d = blobmsg_open_array(b, "negotiated");
+-
+-	/* Work out negotiated pause frame usage per
+-	 * IEEE 802.3-2005 table 28B-3.
+-	 */
+-	if (ethtool_link_mode_test_bit(nwords,
+-				       ETHTOOL_LINK_MODE_Pause_BIT,
+-				       advertising) &&
+-	    ethtool_link_mode_test_bit(nwords,
+-				       ETHTOOL_LINK_MODE_Pause_BIT,
+-				       lp_advertising)) {
+-		an_tx = true;
+-		an_rx = true;
+-	} else if (ethtool_link_mode_test_bit(nwords,
+-					      ETHTOOL_LINK_MODE_Asym_Pause_BIT,
+-					      advertising) &&
+-		   ethtool_link_mode_test_bit(nwords,
+-					      ETHTOOL_LINK_MODE_Asym_Pause_BIT,
+-					      lp_advertising)) {
+-		if (ethtool_link_mode_test_bit(nwords,
+-					       ETHTOOL_LINK_MODE_Pause_BIT,
+-					       advertising))
+-			an_rx = true;
+-		else if (ethtool_link_mode_test_bit(nwords,
+-						    ETHTOOL_LINK_MODE_Pause_BIT,
+-						    lp_advertising))
+-			an_tx = true;
+-	}
+-	if (an_tx)
+-		blobmsg_add_string(b, NULL, "rx");
+-
+-	if (an_rx)
+-		blobmsg_add_string(b, NULL, "tx");
+-
+-	blobmsg_close_array(b, d);
+-}
+-
+-static void
+-system_get_ethtool_pause(struct device *dev, bool *rx_pause, bool *tx_pause, bool *pause_autoneg)
+-{
+-	struct ethtool_pauseparam pp;
+-	struct ifreq ifr = {
+-		.ifr_data = (caddr_t)&pp,
+-	};
+-
+-	strncpy(ifr.ifr_name, dev->ifname, sizeof(ifr.ifr_name) - 1);
+-	memset(&pp, 0, sizeof(pp));
+-	pp.cmd = ETHTOOL_GPAUSEPARAM;
+-
+-	/* may fail */
+-	if (ioctl(sock_ioctl, SIOCETHTOOL, &ifr) == -1) {
+-		*pause_autoneg = true;
+-		return;
+-	}
+-
+-	*rx_pause = pp.rx_pause;
+-	*tx_pause = pp.tx_pause;
+-	*pause_autoneg = pp.autoneg;
+-}
+-
+ int
+ system_if_dump_info(struct device *dev, struct blob_buf *b)
+ {
+-	__u32 *supported, *advertising, *lp_advertising;
+-	bool rx_pause, tx_pause, pause_autoneg;
+-	struct {
+-		struct ethtool_link_settings req;
+-		__u32 link_mode_data[3 * 127];
+-	} ecmd;
+-	struct ifreq ifr = {
+-		.ifr_data = (caddr_t)&ecmd,
+-	};
+-	__s8 nwords;
+-	void *c, *d;
++	struct ethtool_cmd ecmd;
++	struct ifreq ifr;
+ 	char *s;
+-
+-	system_get_ethtool_pause(dev, &rx_pause, &tx_pause, &pause_autoneg);
++	void *c;
+ 
+ 	memset(&ecmd, 0, sizeof(ecmd));
+-	ecmd.req.cmd = ETHTOOL_GLINKSETTINGS;
++	memset(&ifr, 0, sizeof(ifr));
+ 	strncpy(ifr.ifr_name, dev->ifname, sizeof(ifr.ifr_name) - 1);
++	ifr.ifr_data = (caddr_t) &ecmd;
++	ecmd.cmd = ETHTOOL_GSET;
+ 
+-	if (ioctl(sock_ioctl, SIOCETHTOOL, &ifr) < 0 ||
+-	    ecmd.req.link_mode_masks_nwords >= 0 ||
+-	    ecmd.req.cmd != ETHTOOL_GLINKSETTINGS)
+-		return -EOPNOTSUPP;
+-
+-	ecmd.req.link_mode_masks_nwords = -ecmd.req.link_mode_masks_nwords;
+-
+-	if (ioctl(sock_ioctl, SIOCETHTOOL, &ifr) < 0 ||
+-	    ecmd.req.link_mode_masks_nwords <= 0 ||
+-	    ecmd.req.cmd != ETHTOOL_GLINKSETTINGS)
+-		return -EIO;
+-
+-	nwords = ecmd.req.link_mode_masks_nwords;
+-	supported = &ecmd.link_mode_data[0];
+-	advertising = &ecmd.link_mode_data[nwords];
+-	lp_advertising = &ecmd.link_mode_data[2 * nwords];
+-
+-	c = blobmsg_open_array(b, "link-advertising");
+-	system_add_link_modes(nwords, b, advertising);
+-	blobmsg_close_array(b, c);
+-
+-	c = blobmsg_open_array(b, "link-partner-advertising");
+-	system_add_link_modes(nwords, b, lp_advertising);
+-	blobmsg_close_array(b, c);
+-
+-	c = blobmsg_open_array(b, "link-supported");
+-	system_add_link_modes(nwords, b, supported);
+-	blobmsg_close_array(b, c);
+-
+-	if (ethtool_validate_speed(ecmd.req.speed) &&
+-	    (ecmd.req.speed != (__u32)SPEED_UNKNOWN) &&
+-	    (ecmd.req.speed != 0)) {
+-		s = blobmsg_alloc_string_buffer(b, "speed", 10);
+-		snprintf(s, 8, "%d%c", ecmd.req.speed,
+-			ecmd.req.duplex == DUPLEX_HALF ? 'H' : 'F');
+-		blobmsg_add_string_buffer(b);
+-	}
+-	blobmsg_add_u8(b, "autoneg", !!ecmd.req.autoneg);
++	if (ioctl(sock_ioctl, SIOCETHTOOL, &ifr) == 0) {
++		c = blobmsg_open_array(b, "link-advertising");
++		system_add_link_modes(b, ecmd.advertising);
++		blobmsg_close_array(b, c);
+ 
+-	c = blobmsg_open_table(b, "flow-control");
+-	blobmsg_add_u8(b, "autoneg", pause_autoneg);
++		c = blobmsg_open_array(b, "link-partner-advertising");
++		system_add_link_modes(b, ecmd.lp_advertising);
++		blobmsg_close_array(b, c);
+ 
+-	d = blobmsg_open_array(b, "supported");
+-	system_add_pause_modes(nwords, b, supported);
+-	blobmsg_close_array(b, d);
++		c = blobmsg_open_array(b, "link-supported");
++		system_add_link_modes(b, ecmd.supported);
++		blobmsg_close_array(b, c);
+ 
+-	if (pause_autoneg) {
+-		d = blobmsg_open_array(b, "link-advertising");
+-		system_add_pause_modes(nwords, b, advertising);
+-		blobmsg_close_array(b, d);
+-	}
+-
+-	d = blobmsg_open_array(b, "link-partner-advertising");
+-	system_add_pause_modes(nwords, b, lp_advertising);
+-	blobmsg_close_array(b, d);
+-
+-	if (pause_autoneg) {
+-		system_add_ethtool_pause_an(b, nwords, advertising,
+-					    lp_advertising);
+-	} else {
+-		d = blobmsg_open_array(b, "selected");
+-		if (rx_pause)
+-			blobmsg_add_string(b, NULL, "rx");
+-
+-		if (tx_pause)
+-			blobmsg_add_string(b, NULL, "tx");
++		s = blobmsg_alloc_string_buffer(b, "speed", 8);
++		snprintf(s, 8, "%d%c", ethtool_cmd_speed(&ecmd),
++			ecmd.duplex == DUPLEX_HALF ? 'H' : 'F');
++		blobmsg_add_string_buffer(b);
+ 
+-		blobmsg_close_array(b, d);
++		blobmsg_add_u8(b, "autoneg", !!ecmd.autoneg);
+ 	}
+ 
+-	blobmsg_close_table(b, c);
+-
+ 	blobmsg_add_u8(b, "hw-tc-offload",
+ 		ethtool_feature_value(dev->ifname, "hw-tc-offload"));
+ 
+@@ -4203,7 +3971,7 @@ static void system_vxlan_map_bool_attr(struct nl_msg *msg, struct blob_attr **tb
+ 
+ 		if ((attrtype == IFLA_VXLAN_GBP) && val)
+ 			nla_put_flag(msg, attrtype);
+-		else 
++		else
+ 			nla_put_u8(msg, attrtype, val);
+ 
+ 	}
+-- 
+2.18.0
+

@@ -1,0 +1,24 @@
+From c2d313b529fc01072a89cdc475a6506357c840c9 Mon Sep 17 00:00:00 2001
+From: Evelyn Tsai <evelyn.tsai@mediatek.com>
+Date: Tue, 29 Aug 2023 06:31:35 +0800
+Subject: [PATCH] network: enable bridge igmp_snooping by default
+
+---
+ package/base-files/files/bin/config_generate | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/package/base-files/files/bin/config_generate b/package/base-files/files/bin/config_generate
+index 3836281..68c0535 100755
+--- a/package/base-files/files/bin/config_generate
++++ b/package/base-files/files/bin/config_generate
+@@ -114,6 +114,7 @@ generate_network() {
+ 			add network device
+ 			set network.@device[-1].name='br-$1'
+ 			set network.@device[-1].type='bridge'
++			set network.@device[-1].igmp_snooping='1'
+ 		EOF
+ 		for port in $ports; do uci add_list network.@device[-1].ports="$port"; done
+ 		[ -n "$macaddr" ] && {
+-- 
+2.18.0
+

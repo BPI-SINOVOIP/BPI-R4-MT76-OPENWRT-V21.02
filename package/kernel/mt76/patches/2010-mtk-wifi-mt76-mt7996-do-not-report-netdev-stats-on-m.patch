@@ -1,0 +1,37 @@
+From 1861ed32781234084364c8b77fcd8aa7a220654c Mon Sep 17 00:00:00 2001
+From: Shayne Chen <shayne.chen@mediatek.com>
+Date: Thu, 26 Oct 2023 17:27:43 +0800
+Subject: [PATCH 2010/2028] mtk: wifi: mt76: mt7996: do not report netdev stats
+ on monitor vif
+
+This fixes the following NULL pointer crash when enabling monitor mode:
+[  205.593158] Call trace:
+[  205.595597]  mt7996_mcu_rx_event+0x4a0/0x6e8 [mt7996e]
+[  205.600725]  mt7996_queue_rx_skb+0x6e4/0xfa0 [mt7996e]
+[  205.605851]  mt76_dma_rx_poll+0x384/0x420 [mt76]
+[  205.610459]  __napi_poll+0x38/0x1c0
+[  205.613935]  napi_threaded_poll+0x80/0xe8
+[  205.617934]  kthread+0x124/0x128
+
+Signed-off-by: Shayne Chen <shayne.chen@mediatek.com>
+---
+ mt7996/mcu.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/mt7996/mcu.c b/mt7996/mcu.c
+index 9076020e..8bb29e3a 100644
+--- a/mt7996/mcu.c
++++ b/mt7996/mcu.c
+@@ -537,6 +537,9 @@ static inline void __mt7996_stat_to_netdev(struct mt76_phy *mphy,
+ 				   drv_priv);
+ 		wdev = ieee80211_vif_to_wdev(vif);
+ 
++		if (vif->type == NL80211_IFTYPE_MONITOR)
++			return;
++
+ 		dev_sw_netstats_tx_add(wdev->netdev, tx_packets, tx_bytes);
+ 		dev_sw_netstats_rx_add(wdev->netdev, rx_packets, rx_bytes);
+ 	}
+-- 
+2.18.0
+

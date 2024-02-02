@@ -1,0 +1,40 @@
+From 3402e771b7a2d912e8d77ff4644d8ae10ca07703 Mon Sep 17 00:00:00 2001
+From: StanleyYP Wang <StanleyYP.Wang@mediatek.com>
+Date: Mon, 7 Aug 2023 19:00:53 +0800
+Subject: [PATCH 20/37] mtk: mac80211: avoid calling switch_vif_chanctx when
+ use_chanctx is false
+
+Signed-off-by: StanleyYP Wang <StanleyYP.Wang@mediatek.com>
+---
+ net/mac80211/chan.c | 14 ++++++++------
+ 1 file changed, 8 insertions(+), 6 deletions(-)
+
+diff --git a/net/mac80211/chan.c b/net/mac80211/chan.c
+index 6895275..96f1ad0 100644
+--- a/net/mac80211/chan.c
++++ b/net/mac80211/chan.c
+@@ -1304,13 +1304,15 @@ ieee80211_link_use_reserved_reassign(struct ieee80211_link_data *link)
+ 	list_del(&link->reserved_chanctx_list);
+ 	link->reserved_chanctx = NULL;
+ 
+-	err = drv_switch_vif_chanctx(local, vif_chsw, 1,
+-				     CHANCTX_SWMODE_REASSIGN_VIF);
+-	if (err) {
+-		if (ieee80211_chanctx_refcount(local, new_ctx) == 0)
+-			ieee80211_free_chanctx(local, new_ctx);
++	if (local->use_chanctx) {
++		err = drv_switch_vif_chanctx(local, vif_chsw, 1,
++					     CHANCTX_SWMODE_REASSIGN_VIF);
++		if (err) {
++			if (ieee80211_chanctx_refcount(local, new_ctx) == 0)
++				ieee80211_free_chanctx(local, new_ctx);
+ 
+-		goto out;
++			goto out;
++		}
+ 	}
+ 
+ 	list_move(&link->assigned_chanctx_list, &new_ctx->assigned_links);
+-- 
+2.18.0
+

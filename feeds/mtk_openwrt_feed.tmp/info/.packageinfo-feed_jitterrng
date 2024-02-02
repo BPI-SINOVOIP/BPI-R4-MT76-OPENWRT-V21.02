@@ -1,0 +1,22 @@
+Source-Makefile: feeds/mtk_openwrt_feed/feed/jitterrng/Makefile
+
+Package: jitterrng
+Submenu: FIPS
+Version: eccabf2318c902285a8e3fbe7c2a7f84ab2e55ce-3.4.1
+Depends: +libc +USE_GLIBC:librt +USE_GLIBC:libpthread 
+Conflicts: 
+Menu-Depends: 
+Provides: 
+Section: Utilities
+Category: Utilities
+Repository: base
+Title: JITTER
+Maintainer: 
+Source: jitterentropy-library-eccabf2318c902285a8e3fbe7c2a7f84ab2e55ce.tar.xz
+Type: ipkg
+Description:   Jitterrng provide a noise source using CPU execution timing jitter.
+  In this package, we need getrawentropy binary to get noise source.
+
+@@
+
+

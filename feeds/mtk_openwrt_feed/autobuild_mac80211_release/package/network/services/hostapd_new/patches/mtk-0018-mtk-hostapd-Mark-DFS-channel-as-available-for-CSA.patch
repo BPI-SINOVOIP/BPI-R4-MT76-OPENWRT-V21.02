@@ -1,0 +1,60 @@
+From 8a52855a8e3425d62b7ffba05ccf1ddd08223f78 Mon Sep 17 00:00:00 2001
+From: "himanshu.goyal" <himanshu.goyal@mediatek.com>
+Date: Fri, 3 Mar 2023 12:45:42 +0800
+Subject: [PATCH 18/54] mtk: hostapd: Mark DFS channel as available for CSA.
+
+---
+ hostapd/ctrl_iface.c   | 10 ++++++++++
+ hostapd/hostapd_cli.c  |  2 +-
+ src/ap/ctrl_iface_ap.c |  1 +
+ 3 files changed, 12 insertions(+), 1 deletion(-)
+
+diff --git a/hostapd/ctrl_iface.c b/hostapd/ctrl_iface.c
+index 57addb22d..ba2137969 100644
+--- a/hostapd/ctrl_iface.c
++++ b/hostapd/ctrl_iface.c
+@@ -2751,6 +2751,16 @@ static int hostapd_ctrl_iface_chan_switch(struct hostapd_iface *iface,
+ 		break;
+ 	}
+ 
++	if (settings.freq_params.radar_background) {
++		hostapd_dfs_sta_update_state(iface,
++			settings.freq_params.freq,
++			settings.freq_params.ht_enabled,
++			settings.freq_params.sec_channel_offset,
++			bandwidth, settings.freq_params.center_freq1,
++			settings.freq_params.center_freq2,
++			HOSTAPD_CHAN_DFS_AVAILABLE);
++	}
++
+ 	if (settings.freq_params.center_freq1)
+ 		dfs_range += hostapd_is_dfs_overlap(
+ 			iface, bandwidth, settings.freq_params.center_freq1);
+diff --git a/hostapd/hostapd_cli.c b/hostapd/hostapd_cli.c
+index d59373062..0a374be8e 100644
+--- a/hostapd/hostapd_cli.c
++++ b/hostapd/hostapd_cli.c
+@@ -1715,7 +1715,7 @@ static const struct hostapd_cli_cmd hostapd_cli_commands[] = {
+ 	  "<addr> = send QoS Map Configure frame" },
+ 	{ "chan_switch", hostapd_cli_cmd_chan_switch, NULL,
+ 	  "<cs_count> <freq> [sec_channel_offset=] [center_freq1=]\n"
+-	  "  [center_freq2=] [bandwidth=] [blocktx] [ht|vht]\n"
++	  "  [center_freq2=] [bandwidth=] [blocktx] [ht|vht] [skip_cac]\n"
+ 	  "  = initiate channel switch announcement" },
+ 	{ "hs20_wnm_notif", hostapd_cli_cmd_hs20_wnm_notif, NULL,
+ 	  "<addr> <url>\n"
+diff --git a/src/ap/ctrl_iface_ap.c b/src/ap/ctrl_iface_ap.c
+index 0e173f174..7bdefb4cf 100644
+--- a/src/ap/ctrl_iface_ap.c
++++ b/src/ap/ctrl_iface_ap.c
+@@ -1014,6 +1014,7 @@ int hostapd_parse_csa_settings(const char *pos,
+ 	settings->freq_params.vht_enabled = !!os_strstr(pos, " vht");
+ 	settings->freq_params.he_enabled = !!os_strstr(pos, " he");
+ 	settings->freq_params.eht_enabled = !!os_strstr(pos, " eht");
++	settings->freq_params.radar_background = !!os_strstr(pos, " skip_cac");
+ 	settings->block_tx = !!os_strstr(pos, " blocktx");
+ #undef SET_CSA_SETTING
+ #undef SET_CSA_SETTING_EXT
+-- 
+2.18.0
+

@@ -1,0 +1,12 @@
+#!/bin/sh /etc/rc.common
+
+sleep 30
+
+result=`lsusb | grep "2c7c:0" | wc -l`
+if [ ${result} -eq 1 ]; then
+	#echo "#########################  Start 5G RM500U-CN Calling Process ############################"
+	#/sbin/quectel-CM 2>&1 | tee -a /var/log/quectel-CM_RM500U-CN_Calling.log
+	#echo "##########################################################################################"
+	/sbin/quectel-CM &
+fi
+

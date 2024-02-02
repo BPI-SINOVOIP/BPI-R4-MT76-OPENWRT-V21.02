@@ -1,0 +1,231 @@
+From c5b9ecebf45799539185e75478fc0cd796d88746 Mon Sep 17 00:00:00 2001
+From: Bo Jiao <Bo.Jiao@mediatek.com>
+Date: Mon, 6 Nov 2023 11:10:10 +0800
+Subject: [PATCH 1026/1044] mtk: wifi: mt76: try more times when send message
+ timeout.
+
+Signed-off-by: Bo Jiao <Bo.Jiao@mediatek.com>
+---
+ dma.c        |  7 ++++--
+ mcu.c        | 65 ++++++++++++++++++++++++++++++++++++----------------
+ mt7996/mac.c | 49 ++++++++++-----------------------------
+ 3 files changed, 62 insertions(+), 59 deletions(-)
+
+diff --git a/dma.c b/dma.c
+index 12f0e2fd..be8e2aaa 100644
+--- a/dma.c
++++ b/dma.c
+@@ -506,9 +506,12 @@ mt76_dma_tx_queue_skb_raw(struct mt76_dev *dev, struct mt76_queue *q,
+ {
+ 	struct mt76_queue_buf buf = {};
+ 	dma_addr_t addr;
++	int ret = -ENOMEM;
+ 
+-	if (test_bit(MT76_MCU_RESET, &dev->phy.state))
++	if (test_bit(MT76_MCU_RESET, &dev->phy.state)) {
++		ret = -EAGAIN;
+ 		goto error;
++	}
+ 
+ 	if (q->queued + 1 >= q->ndesc - 1)
+ 		goto error;
+@@ -530,7 +533,7 @@ mt76_dma_tx_queue_skb_raw(struct mt76_dev *dev, struct mt76_queue *q,
+ 
+ error:
+ 	dev_kfree_skb(skb);
+-	return -ENOMEM;
++	return ret;
+ }
+ 
+ static int
+diff --git a/mcu.c b/mcu.c
+index fa4b0544..2926f715 100644
+--- a/mcu.c
++++ b/mcu.c
+@@ -4,6 +4,7 @@
+  */
+ 
+ #include "mt76.h"
++#include "mt76_connac.h"
+ #include <linux/moduleparam.h>
+ 
+ struct sk_buff *
+@@ -74,35 +75,59 @@ int mt76_mcu_skb_send_and_get_msg(struct mt76_dev *dev, struct sk_buff *skb,
+ 				  int cmd, bool wait_resp,
+ 				  struct sk_buff **ret_skb)
+ {
++#define MT76_MSG_MAX_RETRY_CNT 3
+ 	unsigned long expires;
+-	int ret, seq;
++	int ret, seq, retry_cnt;
++	struct sk_buff *skb_tmp;
++	bool retry = wait_resp && is_mt7996(dev);
+ 
+ 	if (ret_skb)
+ 		*ret_skb = NULL;
+ 
+ 	mutex_lock(&dev->mcu.mutex);
+-
+-	ret = dev->mcu_ops->mcu_skb_send_msg(dev, skb, cmd, &seq);
+-	if (ret < 0)
+-		goto out;
+-
+-	if (!wait_resp) {
+-		ret = 0;
+-		goto out;
++	retry_cnt = retry ? MT76_MSG_MAX_RETRY_CNT : 1;
++	while (retry_cnt) {
++		skb_tmp = mt76_mcu_msg_alloc(dev, skb->data, skb->len);
++		if (!skb_tmp)
++			goto out;
++
++		if (retry && retry_cnt < MT76_MSG_MAX_RETRY_CNT) {
++			if (test_bit(MT76_MCU_RESET, &dev->phy.state))
++				usleep_range(200000, 500000);
++			dev_err(dev->dev, "send message %08x timeout, try again.\n", cmd);
++		}
++
++		ret = dev->mcu_ops->mcu_skb_send_msg(dev, skb_tmp, cmd, &seq);
++		if (ret < 0 && ret != -EAGAIN)
++			goto out;
++
++		if (!wait_resp) {
++			ret = 0;
++			goto out;
++		}
++
++		expires = jiffies + dev->mcu.timeout;
++
++		do {
++			skb_tmp = mt76_mcu_get_response(dev, expires);
++			ret = dev->mcu_ops->mcu_parse_response(dev, cmd, skb_tmp, seq);
++			if (ret == -ETIMEDOUT)
++				break;
++
++			if (!ret && ret_skb)
++				*ret_skb = skb_tmp;
++			else
++				dev_kfree_skb(skb_tmp);
++
++			if (ret != -EAGAIN)
++				goto out;
++		} while (ret == -EAGAIN);
++
++		retry_cnt--;
+ 	}
+ 
+-	expires = jiffies + dev->mcu.timeout;
+-
+-	do {
+-		skb = mt76_mcu_get_response(dev, expires);
+-		ret = dev->mcu_ops->mcu_parse_response(dev, cmd, skb, seq);
+-		if (!ret && ret_skb)
+-			*ret_skb = skb;
+-		else
+-			dev_kfree_skb(skb);
+-	} while (ret == -EAGAIN);
+-
+ out:
++	dev_kfree_skb(skb);
+ 	mutex_unlock(&dev->mcu.mutex);
+ 
+ 	return ret;
+diff --git a/mt7996/mac.c b/mt7996/mac.c
+index 618c1f40..96627a58 100644
+--- a/mt7996/mac.c
++++ b/mt7996/mac.c
+@@ -1662,18 +1662,6 @@ mt7996_mac_restart(struct mt7996_dev *dev)
+ 			mt76_wr(dev, MT_PCIE1_MAC_INT_ENABLE, 0x0);
+ 	}
+ 
+-	set_bit(MT76_RESET, &dev->mphy.state);
+-	set_bit(MT76_MCU_RESET, &dev->mphy.state);
+-	wake_up(&dev->mt76.mcu.wait);
+-	if (phy2) {
+-		set_bit(MT76_RESET, &phy2->mt76->state);
+-		set_bit(MT76_MCU_RESET, &phy2->mt76->state);
+-	}
+-	if (phy3) {
+-		set_bit(MT76_RESET, &phy3->mt76->state);
+-		set_bit(MT76_MCU_RESET, &phy3->mt76->state);
+-	}
+-
+ 	/* lock/unlock all queues to ensure that no tx is pending */
+ 	mt76_txq_schedule_all(&dev->mphy);
+ 	if (phy2)
+@@ -1787,13 +1775,24 @@ mt7996_mac_full_reset(struct mt7996_dev *dev)
+ 	phy3 = mt7996_phy3(dev);
+ 	dev->recovery.hw_full_reset = true;
+ 
+-	wake_up(&dev->mt76.mcu.wait);
+ 	ieee80211_stop_queues(mt76_hw(dev));
+ 	if (phy2)
+ 		ieee80211_stop_queues(phy2->mt76->hw);
+ 	if (phy3)
+ 		ieee80211_stop_queues(phy3->mt76->hw);
+ 
++	set_bit(MT76_RESET, &dev->mphy.state);
++	set_bit(MT76_MCU_RESET, &dev->mphy.state);
++	wake_up(&dev->mt76.mcu.wait);
++	if (phy2) {
++		set_bit(MT76_RESET, &phy2->mt76->state);
++		set_bit(MT76_MCU_RESET, &phy2->mt76->state);
++	}
++	if (phy3) {
++		set_bit(MT76_RESET, &phy3->mt76->state);
++		set_bit(MT76_MCU_RESET, &phy3->mt76->state);
++	}
++
+ 	cancel_work_sync(&dev->wed_rro.work);
+ 	cancel_delayed_work_sync(&dev->mphy.mac_work);
+ 	if (phy2)
+@@ -1896,16 +1895,6 @@ void mt7996_mac_reset_work(struct work_struct *work)
+ 	set_bit(MT76_MCU_RESET, &dev->mphy.state);
+ 	wake_up(&dev->mt76.mcu.wait);
+ 
+-	cancel_work_sync(&dev->wed_rro.work);
+-	cancel_delayed_work_sync(&dev->mphy.mac_work);
+-	if (phy2) {
+-		set_bit(MT76_RESET, &phy2->mt76->state);
+-		cancel_delayed_work_sync(&phy2->mt76->mac_work);
+-	}
+-	if (phy3) {
+-		set_bit(MT76_RESET, &phy3->mt76->state);
+-		cancel_delayed_work_sync(&phy3->mt76->mac_work);
+-	}
+ 	mt76_worker_disable(&dev->mt76.tx_worker);
+ 	mt76_for_each_q_rx(&dev->mt76, i) {
+ 		if (mtk_wed_device_active(&dev->mt76.mmio.wed) &&
+@@ -1916,8 +1905,6 @@ void mt7996_mac_reset_work(struct work_struct *work)
+ 	}
+ 	napi_disable(&dev->mt76.tx_napi);
+ 
+-	mutex_lock(&dev->mt76.mutex);
+-
+ 	mt76_wr(dev, MT_MCU_INT_EVENT, MT_MCU_INT_EVENT_DMA_STOPPED);
+ 
+ 	if (mt7996_wait_reset_state(dev, MT_MCU_CMD_RESET_DONE)) {
+@@ -1990,20 +1977,8 @@ void mt7996_mac_reset_work(struct work_struct *work)
+ 	if (phy3)
+ 		ieee80211_wake_queues(phy3->mt76->hw);
+ 
+-	mutex_unlock(&dev->mt76.mutex);
+-
+ 	mt7996_update_beacons(dev);
+ 
+-	ieee80211_queue_delayed_work(mt76_hw(dev), &dev->mphy.mac_work,
+-				     MT7996_WATCHDOG_TIME);
+-	if (phy2)
+-		ieee80211_queue_delayed_work(phy2->mt76->hw,
+-					     &phy2->mt76->mac_work,
+-					     MT7996_WATCHDOG_TIME);
+-	if (phy3)
+-		ieee80211_queue_delayed_work(phy3->mt76->hw,
+-					     &phy3->mt76->mac_work,
+-					     MT7996_WATCHDOG_TIME);
+ 	dev_info(dev->mt76.dev,"\n%s L1 SER recovery completed.",
+ 		 wiphy_name(dev->mt76.hw->wiphy));
+ }
+-- 
+2.18.0
+

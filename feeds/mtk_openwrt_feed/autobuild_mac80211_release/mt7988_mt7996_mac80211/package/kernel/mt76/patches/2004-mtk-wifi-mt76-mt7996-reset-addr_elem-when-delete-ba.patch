@@ -1,0 +1,93 @@
+From 411816e1b90c216347406bc3f1c57d2affa0dee4 Mon Sep 17 00:00:00 2001
+From: "sujuan.chen" <sujuan.chen@mediatek.com>
+Date: Thu, 18 May 2023 15:01:47 +0800
+Subject: [PATCH 2004/2028] mtk: wifi: mt76: mt7996: reset addr_elem when
+ delete ba
+
+The old addr element info may be used when the signature is not equel to
+0xff, and sta will find error SDP cause the SDP/SDL=0 issue.
+
+Signed-off-by: sujuan.chen <sujuan.chen@mediatek.com>
+
+1. without this patch will delete wrong session id when delete ba.
+Due to fw change the cmd format.
+https://gerrit.mediatek.inc/c/neptune/firmware/bora/wifi/custom/+/7969193
+
+Signed-off-by: mtk27745 <rex.lu@mediatek.com>
+---
+ mt76.h       |  1 +
+ mt7996/mcu.h | 46 ++++++++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 47 insertions(+)
+
+diff --git a/mt76.h b/mt76.h
+index 17b39179..2ce1e84e 100644
+--- a/mt76.h
++++ b/mt76.h
+@@ -438,6 +438,7 @@ struct mt76_rx_tid {
+ 	u16 nframes;
+ 
+ 	u8 num;
++	u16 session_id;
+ 
+ 	u8 started:1, stopped:1, timer_pending:1;
+ 
+diff --git a/mt7996/mcu.h b/mt7996/mcu.h
+index 4fa399bc..a2604192 100644
+--- a/mt7996/mcu.h
++++ b/mt7996/mcu.h
+@@ -298,6 +298,52 @@ struct mt7996_mcu_thermal_notify {
+ 	u8 __rsv2[4];
+ } __packed;
+ 
++struct mt7996_mcu_rro_event {
++	struct mt7996_mcu_rxd rxd;
++
++	u8 __rsv1[4];
++
++	__le16 tag;
++	__le16 len;
++} __packed;
++
++struct mt7996_mcu_rro_ba {
++	__le16 tag;
++	__le16 len;
++
++	__le16 wlan_id;
++	u8 tid;
++	u8 __rsv1;
++	__le32 status;
++	__le16 session_id;
++	u8 __rsv2[2];
++} __packed;
++
++struct mt7996_mcu_rro_ba_del_chk_done {
++	__le16 tag;
++	__le16 len;
++
++	__le16 session_id;
++	__le16 mld_id;
++	u8 tid;
++	u8 __rsv[3];
++} __packed;
++
++enum  {
++	UNI_RRO_BA_SESSION_STATUS = 0,
++	UNI_RRO_BA_SESSION_TBL	= 1,
++	UNI_RRO_BA_SESSION_DEL_CHK_DONE = 2,
++	UNI_RRO_BA_SESSION_MAX_NUM
++};
++
++struct mt7996_mcu_rro_del_ba {
++	struct mt7996_mcu_rro_event event;
++
++	u8  wlan_idx;
++	u8  tid;
++	u8 __rsv2[2];
++};
++
+ enum mt7996_chan_mib_offs {
+ 	UNI_MIB_OBSS_AIRTIME = 26,
+ 	UNI_MIB_NON_WIFI_TIME = 27,
+-- 
+2.18.0
+

@@ -1,0 +1,8 @@
+--- a/analyzer/tools/build-logger/Makefile.native
++++ b/analyzer/tools/build-logger/Makefile.native
+@@ -0,0 +1,5 @@
++include Makefile
++
++# ldlogger lib native
++ldlogger.so: $(LDLOGGER_LIB_SOURCES) $(LDLOGGER_LIB_HEADERS)
++	$(CC) $(CPPFLAGS) $(LIB_CFLAGS) $(LIB_LDFLAGS) $(LDLOGGER_LIB_SOURCES) $(LDLOGGER_SOURCES) -o $@

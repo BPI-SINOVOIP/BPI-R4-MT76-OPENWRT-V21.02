@@ -1,0 +1,22 @@
+Source-Makefile: feeds/mtk_openwrt_feed/feed/flowtable/Makefile
+
+Package: netfilter-flowtable
+Submenu: Applications
+Version: 1.0-1
+Depends: +libc +USE_GLIBC:librt +USE_GLIBC:libpthread +libnfnetlink +libmnl +kmod-nf-flow-netlink
+Conflicts: 
+Menu-Depends: 
+Provides: 
+Section: MTK Properties
+Category: MTK Properties
+Repository: base
+Title: API to the in-kernel flow offload table
+Maintainer: 
+Source: 
+License: GPL-2.0+
+Type: ipkg
+Description:   API to the in-kernel flow offload table
+
+@@
+
+

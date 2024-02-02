@@ -1,0 +1,104 @@
+--- a/feeds/packages/net/strongswan/Makefile
++++ b/feeds/packages/net/strongswan/Makefile
+@@ -259,6 +259,7 @@ $(call Package/strongswan/Default)
+   TITLE+= (default)
+   DEPENDS:= strongswan \
+ 	+strongswan-charon \
++	+strongswan-ipsec \
+ 	+strongswan-mod-aes \
+ 	+strongswan-mod-attr \
+ 	+strongswan-mod-connmark \
+@@ -536,25 +537,8 @@ define Package/strongswan-ipsec/conffile
+ endef
+ 
+ define Package/strongswan-ipsec/install
+-	$(INSTALL_DIR) $(1)/etc/ $(1)/usr/sbin
+-	$(INSTALL_CONF) $(PKG_INSTALL_DIR)/etc/ipsec.conf $(1)/etc/
+-	echo -e "\ninclude /var/ipsec/ipsec.conf" >> $(1)/etc/ipsec.conf
+-	$(INSTALL_CONF) ./files/ipsec.secrets $(1)/etc/
+-	echo -e "\ninclude /var/ipsec/ipsec.secrets" >> $(1)/etc/ipsec.secrets
+-	$(INSTALL_CONF) ./files/ipsec.user $(1)/etc/
+-	$(INSTALL_DIR) $(1)/etc/init.d
+-	$(INSTALL_BIN) ./files/ipsec.init $(1)/etc/init.d/ipsec
+-	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/ipsec $(1)/usr/sbin/
+-endef
+-
+-define Package/strongswan-ipsec/postinst
+-#!/bin/sh
+-
+-[ -z "$${IPKG_INSTROOT}" ] || exit 0
+-
+-opkg list-changed-conffiles | grep -qx /etc/ipsec.conf || {
+-	rm -f /etc/ipsec.conf-opkg
+-}
++	$(INSTALL_DIR) $(1)/etc/config
++	$(INSTALL_DATA) ./files/ipsec.conf $(1)/etc/config/ipsec
+ endef
+ 
+ define Package/strongswan-libnttfft/install
+--- /dev/null
++++ b/feeds/packages/net/strongswan/files/ipsec.conf
+@@ -0,0 +1,28 @@
++config 'ipsec'
++
++config 'remote' 'TEST'
++	option 'enabled' '0'
++	option 'gateway' '10.10.20.253'
++	option 'authentication_method' 'psk'
++	option 'pre_shared_key' '123456789'
++	list 'crypto_proposal' 'phase_1_settings'
++	list 'tunnel' 'TUNNEL'
++
++config 'crypto_proposal' 'phase_1_settings'
++	option 'encryption_algorithm' 'aes128'
++	option 'hash_algorithm' 'sha1'
++	option 'dh_group' 'modp768'
++
++config 'tunnel' 'TUNNEL'
++	option 'mode' 'add'
++	option 'local_subnet' '192.168.1.0/24'
++	option 'remote_subnet' '192.168.2.0/24'
++	option 'crypto_proposal' 'phase_2_settings'
++	option 'keyexchange' 'ikev2'
++	option 'ikelifetime' '10800'
++	option 'lifetime' '3600'
++
++config 'crypto_proposal' 'phase_2_settings'
++	option 'encryption_algorithm' 'aes128'
++	option 'hash_algorithm' 'sha1'
++	option 'dh_group' 'modp768'
+--- a/feeds/packages/net/strongswan/files/swanctl.init
++++ b/feeds/packages/net/strongswan/files/swanctl.init
+@@ -241,6 +241,7 @@ config_child() {
+ 	local if_id
+ 	local rekeytime
+ 	local rekeybytes
++	local replay_window
+ 	local lifebytes
+ 	local rekeypackets
+ 	local lifepackets
+@@ -258,6 +259,7 @@ config_child() {
+ 	config_get interface "$conf" interface ""
+ 	config_get hw_offload "$conf" hw_offload ""
+ 	config_get priority "$conf" priority ""
++	config_get replay_window "$conf" replay_window 32
+ 	config_get rekeybytes "$conf" rekeybytes ""
+ 	config_get lifebytes "$conf" lifebytes ""
+ 	config_get rekeypackets "$conf" rekeypackets ""
+@@ -323,7 +325,7 @@ config_child() {
+ 	esac
+ 
+ 	case "$hw_offload" in
+-	yes|no|auto|"")
++	yes|no|auto|crypto|packet|"")
+ 		;;
+ 	*)
+ 		fatal "hw_offload value $hw_offload invalid"
+@@ -339,6 +341,7 @@ config_child() {
+ 	[ -n "$remote_subnet" ] && swanctl_xappend4 "remote_ts = $remote_subnet"
+ 
+ 	[ -n "$hw_offload" ] && swanctl_xappend4 "hw_offload = $hw_offload"
++	[ -n "$replay_window" ] && swanctl_xappend4 "replay_window = $replay_window"
+ 	[ $ipcomp -eq 1 ] && swanctl_xappend4 "ipcomp = 1"
+ 	[ -n "$interface" ] && swanctl_xappend4 "interface = $interface"
+ 	[ -n "$priority" ] && swanctl_xappend4 "priority = $priority"

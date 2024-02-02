@@ -1,0 +1,78 @@
+From 371a05c81b4ae064bcf3b5409839048ffc45f447 Mon Sep 17 00:00:00 2001
+From: Peter Chiu <chui-hao.chiu@mediatek.com>
+Date: Mon, 23 Oct 2023 10:25:18 +0800
+Subject: [PATCH 72/76] Revert "wifi: mt76: mt7921: fix the wrong rate pickup
+ for the chanctx driver"
+
+This reverts commit 66d5694e1898c5584a83c60876bec16909ebe2b0.
+---
+ mac80211.c        | 9 ++-------
+ mt76.h            | 3 +--
+ mt76_connac_mac.c | 7 ++-----
+ 3 files changed, 5 insertions(+), 14 deletions(-)
+
+diff --git a/mac80211.c b/mac80211.c
+index 013298e..09c9eb2 100644
+--- a/mac80211.c
++++ b/mac80211.c
+@@ -1728,16 +1728,11 @@ mt76_init_queue(struct mt76_dev *dev, int qid, int idx, int n_desc,
+ }
+ EXPORT_SYMBOL_GPL(mt76_init_queue);
+ 
+-u16 mt76_calculate_default_rate(struct mt76_phy *phy,
+-				struct ieee80211_vif *vif, int rateidx)
++u16 mt76_calculate_default_rate(struct mt76_phy *phy, int rateidx)
+ {
+-	struct mt76_vif *mvif = (struct mt76_vif *)vif->drv_priv;
+-	struct cfg80211_chan_def *chandef = mvif->ctx ?
+-					    &mvif->ctx->def :
+-					    &phy->chandef;
+ 	int offset = 0;
+ 
+-	if (chandef->chan->band != NL80211_BAND_2GHZ)
++	if (phy->chandef.chan->band != NL80211_BAND_2GHZ)
+ 		offset = 4;
+ 
+ 	/* pick the lowest rate for hidden nodes */
+diff --git a/mt76.h b/mt76.h
+index 5fea9a5..d082b24 100644
+--- a/mt76.h
++++ b/mt76.h
+@@ -1262,8 +1262,7 @@ bool mt76_check_bin_file_mode(struct mt76_dev *dev);
+ struct mt76_queue *
+ mt76_init_queue(struct mt76_dev *dev, int qid, int idx, int n_desc,
+ 		int ring_base, void *wed, u32 flags);
+-u16 mt76_calculate_default_rate(struct mt76_phy *phy,
+-				struct ieee80211_vif *vif, int rateidx);
++u16 mt76_calculate_default_rate(struct mt76_phy *phy, int rateidx);
+ static inline int mt76_init_tx_queue(struct mt76_phy *phy, int qid, int idx,
+ 				     int n_desc, int ring_base, void *wed,
+ 				     u32 flags)
+diff --git a/mt76_connac_mac.c b/mt76_connac_mac.c
+index 362d937..83d0dd2 100644
+--- a/mt76_connac_mac.c
++++ b/mt76_connac_mac.c
+@@ -294,10 +294,7 @@ u16 mt76_connac2_mac_tx_rate_val(struct mt76_phy *mphy,
+ 				 struct ieee80211_vif *vif,
+ 				 bool beacon, bool mcast)
+ {
+-	struct mt76_vif *mvif = (struct mt76_vif *)vif->drv_priv;
+-	struct cfg80211_chan_def *chandef = mvif->ctx ?
+-					    &mvif->ctx->def : &mphy->chandef;
+-	u8 nss = 0, mode = 0, band = chandef->chan->band;
++	u8 nss = 0, mode = 0, band = mphy->chandef.chan->band;
+ 	int rateidx = 0, mcast_rate;
+ 
+ 	if (!vif)
+@@ -330,7 +327,7 @@ u16 mt76_connac2_mac_tx_rate_val(struct mt76_phy *mphy,
+ 		rateidx = ffs(vif->bss_conf.basic_rates) - 1;
+ 
+ legacy:
+-	rateidx = mt76_calculate_default_rate(mphy, vif, rateidx);
++	rateidx = mt76_calculate_default_rate(mphy, rateidx);
+ 	mode = rateidx >> 8;
+ 	rateidx &= GENMASK(7, 0);
+ out:
+-- 
+2.18.0
+

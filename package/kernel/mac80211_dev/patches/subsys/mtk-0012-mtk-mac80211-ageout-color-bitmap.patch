@@ -1,0 +1,146 @@
+From 5137077a48ee6eff2910863341d137b4448a6382 Mon Sep 17 00:00:00 2001
+From: Yi-Chia Hsieh <yi-chia.hsieh@mediatek.com>
+Date: Mon, 13 Mar 2023 05:36:59 +0800
+Subject: [PATCH 12/37] mtk: mac80211: ageout color bitmap
+
+Adding a periodic work which runs once per second to check BSS color.
+OBSS BSS Color will be ageout if not seen for 10 seconds.
+---
+ include/net/mac80211.h     |  1 +
+ net/mac80211/cfg.c         | 30 ++++++++++++++++++++++++++++++
+ net/mac80211/ieee80211_i.h |  5 +++++
+ net/mac80211/iface.c       |  5 +++++
+ net/mac80211/link.c        |  2 ++
+ net/mac80211/rx.c          |  1 +
+ 6 files changed, 44 insertions(+)
+
+diff --git a/include/net/mac80211.h b/include/net/mac80211.h
+index b90e828..6ff6d3a 100644
+--- a/include/net/mac80211.h
++++ b/include/net/mac80211.h
+@@ -745,6 +745,7 @@ struct ieee80211_bss_conf {
+ 	struct ieee80211_he_obss_pd he_obss_pd;
+ 	struct cfg80211_he_bss_color he_bss_color;
+ 	u64 used_color_bitmap;
++	u64 color_last_seen[64];
+ 	struct ieee80211_fils_discovery fils_discovery;
+ 	u32 unsol_bcast_probe_resp_interval;
+ 	struct cfg80211_bitrate_mask beacon_tx_rate;
+diff --git a/net/mac80211/cfg.c b/net/mac80211/cfg.c
+index 0e67d89..22bff46 100644
+--- a/net/mac80211/cfg.c
++++ b/net/mac80211/cfg.c
+@@ -4880,6 +4880,36 @@ out:
+ 	return err;
+ }
+ 
++void
++ieee80211_color_aging_work(struct work_struct *work)
++{
++	struct ieee80211_sub_if_data *sdata =
++		container_of(work, struct ieee80211_sub_if_data,
++			     deflink.color_aging_work.work);
++	struct ieee80211_bss_conf *bss_conf = &sdata->vif.bss_conf;
++	int i = 0;
++
++	sdata_lock(sdata);
++
++	if (!ieee80211_sdata_running(sdata))
++		goto unlock;
++
++	for (i = 0; i < IEEE80211_BSS_COLOR_MAX; i++) {
++		/* ageout if not seen for a period */
++		if ((bss_conf->used_color_bitmap & BIT_ULL(i)) &&
++		     time_before(bss_conf->color_last_seen[i],
++				 jiffies - IEEE80211_BSS_COLOR_AGEOUT_TIME * HZ)) {
++			bss_conf->used_color_bitmap &= ~BIT_ULL(i);
++		}
++	}
++
++	ieee80211_queue_delayed_work(&sdata->local->hw,
++			&sdata->deflink.color_aging_work, HZ);
++
++unlock:
++	sdata_unlock(sdata);
++}
++
+ static int
+ ieee80211_set_radar_background(struct wiphy *wiphy,
+ 			       struct cfg80211_chan_def *chandef)
+diff --git a/net/mac80211/ieee80211_i.h b/net/mac80211/ieee80211_i.h
+index be3fa32..35452b0 100644
+--- a/net/mac80211/ieee80211_i.h
++++ b/net/mac80211/ieee80211_i.h
+@@ -998,6 +998,7 @@ struct ieee80211_link_data {
+ 
+ 	struct work_struct color_change_finalize_work;
+ 	struct delayed_work color_collision_detect_work;
++	struct delayed_work color_aging_work;
+ 	u64 color_bitmap;
+ 
+ 	/* context reservation -- protected with chanctx_mtx */
+@@ -1995,9 +1996,13 @@ void ieee80211_csa_finalize_work(struct work_struct *work);
+ int ieee80211_channel_switch(struct wiphy *wiphy, struct net_device *dev,
+ 			     struct cfg80211_csa_settings *params);
+ 
++#define IEEE80211_BSS_COLOR_AGEOUT_TIME        10
++#define IEEE80211_BSS_COLOR_MAX                64
++
+ /* color change handling */
+ void ieee80211_color_change_finalize_work(struct work_struct *work);
+ void ieee80211_color_collision_detection_work(struct work_struct *work);
++void ieee80211_color_aging_work(struct work_struct *work);
+ 
+ /* interface handling */
+ #define MAC80211_SUPPORTED_FEATURES_TX	(NETIF_F_IP_CSUM | NETIF_F_IPV6_CSUM | \
+diff --git a/net/mac80211/iface.c b/net/mac80211/iface.c
+index b8dfd32..e5b5e74 100644
+--- a/net/mac80211/iface.c
++++ b/net/mac80211/iface.c
+@@ -541,6 +541,7 @@ static void ieee80211_do_stop(struct ieee80211_sub_if_data *sdata, bool going_do
+ 	cancel_work_sync(&sdata->deflink.color_change_finalize_work);
+ 
+ 	cancel_delayed_work_sync(&sdata->deflink.dfs_cac_timer_work);
++	cancel_delayed_work_sync(&sdata->deflink.color_aging_work);
+ 
+ 	if (sdata->wdev.cac_started) {
+ 		chandef = sdata->vif.bss_conf.chandef;
+@@ -1474,6 +1475,10 @@ int ieee80211_do_open(struct wireless_dev *wdev, bool coming_up)
+ 
+ 	set_bit(SDATA_STATE_RUNNING, &sdata->state);
+ 
++	if (sdata->vif.type == NL80211_IFTYPE_AP)
++		ieee80211_queue_delayed_work(&sdata->local->hw,
++					     &sdata->deflink.color_aging_work, HZ);
++
+ 	return 0;
+  err_del_interface:
+ 	drv_remove_interface(local, sdata);
+diff --git a/net/mac80211/link.c b/net/mac80211/link.c
+index 6148208..2f64b69 100644
+--- a/net/mac80211/link.c
++++ b/net/mac80211/link.c
+@@ -47,6 +47,8 @@ void ieee80211_link_init(struct ieee80211_sub_if_data *sdata,
+ 	INIT_LIST_HEAD(&link->reserved_chanctx_list);
+ 	INIT_DELAYED_WORK(&link->dfs_cac_timer_work,
+ 			  ieee80211_dfs_cac_timer_work);
++	INIT_DELAYED_WORK(&link->color_aging_work,
++			  ieee80211_color_aging_work);
+ 
+ 	if (!deflink) {
+ 		switch (sdata->vif.type) {
+diff --git a/net/mac80211/rx.c b/net/mac80211/rx.c
+index 65ff365..a3b4cac 100644
+--- a/net/mac80211/rx.c
++++ b/net/mac80211/rx.c
+@@ -3358,6 +3358,7 @@ ieee80211_rx_check_bss_color_collision(struct ieee80211_rx_data *rx)
+ 				      IEEE80211_HE_OPERATION_BSS_COLOR_MASK);
+ 
+ 		bss_conf->used_color_bitmap |= BIT_ULL(color);
++		bss_conf->color_last_seen[color] = jiffies;
+ 
+ 		// trace_bss_color_bitmap(color, bss_conf->used_color_bitmap);
+ 		if (color == bss_conf->he_bss_color.color)
+-- 
+2.18.0
+

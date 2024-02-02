@@ -1,0 +1,163 @@
+From e7a7f2af86f895894445ced1d97e8fc09be4b30f Mon Sep 17 00:00:00 2001
+From: Rex Lu <rex.lu@mediatek.com>
+Date: Mon, 25 Dec 2023 15:17:49 +0800
+Subject: [PATCH 1017/1044] mtk: wifi: mt76: mt7996: Add mt7992 coredump
+ support
+
+1. Add mt7992 coredump support
+2. fixed if new ic have not support coredump, it may cause crash when remove module
+
+Signed-off-by: Rex Lu <rex.lu@mediatek.com>
+---
+ mt7996/coredump.c | 80 ++++++++++++++++++++++++++++++++++++++---------
+ mt7996/mt7996.h   |  1 +
+ 2 files changed, 67 insertions(+), 14 deletions(-)
+
+diff --git a/mt7996/coredump.c b/mt7996/coredump.c
+index a7f91b56..d09bcd4b 100644
+--- a/mt7996/coredump.c
++++ b/mt7996/coredump.c
+@@ -67,6 +67,44 @@ static const struct mt7996_mem_region mt7996_wa_mem_regions[] = {
+ 	},
+ };
+ 
++static const struct mt7996_mem_region mt7992_wm_mem_regions[] = {
++	{
++		.start = 0x00800000,
++		.len = 0x0004bfff,
++		.name = "ULM0",
++	},
++	{
++		.start = 0x00900000,
++		.len = 0x00035fff,
++		.name = "ULM1",
++	},
++	{
++		.start = 0x02200000,
++		.len = 0x0003ffff,
++		.name = "ULM2",
++	},
++	{
++		.start = 0x00400000,
++		.len = 0x00027fff,
++		.name = "SRAM",
++	},
++	{
++		.start = 0xe0000000,
++		.len = 0x0015ffff,
++		.name = "CRAM0",
++	},
++	{
++		.start = 0xe0160000,
++		.len = 0x00c7fff,
++		.name = "CRAM1",
++	},
++	{
++		.start = 0x7c050000,
++		.len = 0x00007fff,
++		.name = "CONN_INFRA",
++	},
++};
++
+ const struct mt7996_mem_region*
+ mt7996_coredump_get_mem_layout(struct mt7996_dev *dev, u8 type, u32 *num)
+ {
+@@ -80,6 +118,14 @@ mt7996_coredump_get_mem_layout(struct mt7996_dev *dev, u8 type, u32 *num)
+ 
+ 		*num = ARRAY_SIZE(mt7996_wm_mem_regions);
+ 		return &mt7996_wm_mem_regions[0];
++	case 0x7992:
++		if (type == MT7996_RAM_TYPE_WA) {
++			/* mt7992 wa memory regions is the same as mt7996 */
++			*num = ARRAY_SIZE(mt7996_wa_mem_regions);
++			return &mt7996_wa_mem_regions[0];
++		}
++		*num = ARRAY_SIZE(mt7992_wm_mem_regions);
++		return &mt7992_wm_mem_regions[0];
+ 	default:
+ 		return NULL;
+ 	}
+@@ -115,7 +161,7 @@ struct mt7996_crash_data *mt7996_coredump_new(struct mt7996_dev *dev, u8 type)
+ 
+ 	lockdep_assert_held(&dev->dump_mutex);
+ 
+-	if (!coredump_memdump)
++	if (!coredump_memdump || !crash_data->supported)
+ 		return NULL;
+ 
+ 	guid_gen(&crash_data->guid);
+@@ -289,40 +335,46 @@ int mt7996_coredump_register(struct mt7996_dev *dev)
+ 	for (i = 0; i < MT7996_COREDUMP_MAX; i++) {
+ 		crash_data = vzalloc(sizeof(*dev->coredump.crash_data[i]));
+ 		if (!crash_data)
+-			return -ENOMEM;
++			goto nomem;
+ 
+ 		dev->coredump.crash_data[i] = crash_data;
++		crash_data->supported = false;
+ 
+ 		if (coredump_memdump) {
+ 			crash_data->memdump_buf_len = mt7996_coredump_get_mem_size(dev, i);
+ 			if (!crash_data->memdump_buf_len)
+ 				/* no memory content */
+-				return 0;
++				continue;
+ 
+ 			crash_data->memdump_buf = vzalloc(crash_data->memdump_buf_len);
+-			if (!crash_data->memdump_buf) {
+-				vfree(crash_data);
+-				return -ENOMEM;
+-			}
++			if (!crash_data->memdump_buf)
++				goto nomem;
++
++			crash_data->supported = true;
+ 		}
+ 	}
+ 
+ 	return 0;
++nomem:
++	mt7996_coredump_unregister(dev);
++	return -ENOMEM;
+ }
+ 
+ void mt7996_coredump_unregister(struct mt7996_dev *dev)
+ {
+ 	int i;
++	struct mt7996_crash_data *crash_data;
+ 
+ 	for (i = 0; i < MT7996_COREDUMP_MAX; i++) {
+-		if (dev->coredump.crash_data[i]->memdump_buf) {
+-			vfree(dev->coredump.crash_data[i]->memdump_buf);
+-			dev->coredump.crash_data[i]->memdump_buf = NULL;
+-			dev->coredump.crash_data[i]->memdump_buf_len = 0;
+-		}
++		crash_data = dev->coredump.crash_data[i];
++
++		if (!crash_data)
++			continue;
++
++		if (crash_data->memdump_buf)
++			vfree(crash_data->memdump_buf);
+ 
+-		vfree(dev->coredump.crash_data[i]);
+-		dev->coredump.crash_data[i] = NULL;
++		vfree(crash_data);
+ 	}
+ }
+ 
+diff --git a/mt7996/mt7996.h b/mt7996/mt7996.h
+index dd9aa9e2..7ca9d57e 100644
+--- a/mt7996/mt7996.h
++++ b/mt7996/mt7996.h
+@@ -230,6 +230,7 @@ struct mt7996_vif {
+ struct mt7996_crash_data {
+ 	guid_t guid;
+ 	struct timespec64 timestamp;
++	bool supported;
+ 
+ 	u8 *memdump_buf;
+ 	size_t memdump_buf_len;
+-- 
+2.18.0
+

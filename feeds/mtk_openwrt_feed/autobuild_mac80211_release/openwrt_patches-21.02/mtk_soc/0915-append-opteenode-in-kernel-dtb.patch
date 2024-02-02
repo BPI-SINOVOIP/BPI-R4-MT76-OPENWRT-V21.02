@@ -1,0 +1,27 @@
+--- a/target/linux/mediatek/image/Makefile
++++ b/target/linux/mediatek/image/Makefile
+@@ -86,6 +86,24 @@ define Build/rootfs-encrypt
+ 	$(if $(ROOTFS_ENCRYPT),$(call Build/squashfs-encrypt))
+ endef
+ 
++define append-opteenode
++	LD_LIBRARY_PATH=$(STAGING_DIR_HOST)/lib \
++	fdtput $(1) "/reserved-memory/secmon@43000000" -tx reg 0 0x43000000 0 0x11f0000
++	LD_LIBRARY_PATH=$(STAGING_DIR_HOST)/lib \
++	fdtput $(1) /firmware -cp
++	LD_LIBRARY_PATH=$(STAGING_DIR_HOST)/lib \
++	fdtput $(1) /firmware/optee -cp
++	LD_LIBRARY_PATH=$(STAGING_DIR_HOST)/lib \
++	fdtput $(1) /firmware/optee -ts compatible "linaro,optee-tz"
++	LD_LIBRARY_PATH=$(STAGING_DIR_HOST)/lib \
++	fdtput $(1) /firmware/optee -ts method "smc"
++	LD_LIBRARY_PATH=$(STAGING_DIR_HOST)/lib \
++	fdtput $(1) /firmware/optee -ts status "okay"
++endef
++
++define Build/append-opteenode
++	$(if $(CONFIG_PACKAGE_optee-mediatek),$(call append-opteenode, $(1)))
++endef
+ # build signed fit
+ define Build/fit-sign
+ 	$(TOPDIR)/scripts/mkits.sh \

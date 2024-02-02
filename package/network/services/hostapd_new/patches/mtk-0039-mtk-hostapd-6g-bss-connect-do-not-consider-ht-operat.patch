@@ -1,0 +1,31 @@
+From 4fe45b586ebb86cfbdd61ab91d5ebef110ce74aa Mon Sep 17 00:00:00 2001
+From: mtk20656 <chank.chen@mediatek.com>
+Date: Wed, 13 Sep 2023 19:29:51 +0800
+Subject: [PATCH 39/54] mtk: hostapd: 6g bss connect do not consider ht
+ operation
+
+Signed-off-by: mtk20656 <chank.chen@mediatek.com>
+---
+ src/ap/ieee802_11.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+ mode change 100755 => 100644 src/ap/ieee802_11.c
+
+diff --git a/src/ap/ieee802_11.c b/src/ap/ieee802_11.c
+old mode 100755
+new mode 100644
+index 7b6aabbff..38fce3e82
+--- a/src/ap/ieee802_11.c
++++ b/src/ap/ieee802_11.c
+@@ -5451,7 +5451,8 @@ static void handle_assoc(struct hostapd_data *hapd,
+ 			ieee802_11_set_beacons(hapd->iface);
+ 	}
+ 
+-	update_ht_state(hapd, sta);
++	if (!is_6ghz_op_class(hapd->iconf->op_class))
++		update_ht_state(hapd, sta);
+ 
+ 	hostapd_logger(hapd, sta->addr, HOSTAPD_MODULE_IEEE80211,
+ 		       HOSTAPD_LEVEL_DEBUG,
+-- 
+2.18.0
+

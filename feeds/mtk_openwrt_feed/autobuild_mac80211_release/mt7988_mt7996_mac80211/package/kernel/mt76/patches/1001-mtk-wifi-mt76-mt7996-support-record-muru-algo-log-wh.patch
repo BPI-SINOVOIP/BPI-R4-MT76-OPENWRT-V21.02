@@ -1,0 +1,144 @@
+From e0e7443107c89385d66e9247888abd01c51b8845 Mon Sep 17 00:00:00 2001
+From: Howard Hsu <howard-yh.hsu@mediatek.com>
+Date: Tue, 28 Nov 2023 16:01:33 +0800
+Subject: [PATCH 1001/1044] mtk: wifi: mt76: mt7996: support record muru algo
+ log when record fw log
+
+Support record muru algorithm debug log in firmware when we use
+chihuahua tool to record fw log. This can help us to check some key
+point of muru algorithm result, like bsrp status, airtime busy status,
+ru candidate...
+Corresponding to Logan driver, it is the same as execute the iwpriv
+command: iwpriv rax0 set muruDbgInfo=[category]-1
+
+Disable muru debug log when we stop record fwlog. Without this commit,
+if we run $ echo 2 > fw_debug_wm after recording fwlog, it will print
+out too many fw debug log.
+
+Signed-off-by: Howard Hsu <howard-yh.hsu@mediatek.com>
+---
+ mt7996/debugfs.c | 35 +++++++++++++++++++++++++++++++++++
+ mt7996/mt7996.h  |  1 +
+ mt7996/mtk_mcu.c | 21 +++++++++++++++++++++
+ mt7996/mtk_mcu.h |  3 +++
+ 4 files changed, 60 insertions(+)
+
+diff --git a/mt7996/debugfs.c b/mt7996/debugfs.c
+index c4b82cb2..f4ce3b55 100644
+--- a/mt7996/debugfs.c
++++ b/mt7996/debugfs.c
+@@ -423,6 +423,36 @@ remove_buf_file_cb(struct dentry *f)
+ 	return 0;
+ }
+ 
++static int
++mt7996_fw_debug_muru_set(void *data)
++{
++	struct mt7996_dev *dev = data;
++	enum {
++		DEBUG_BSRP_STATUS = 256,
++		DEBUG_TX_DATA_BYTE_CONUT,
++		DEBUG_RX_DATA_BYTE_CONUT,
++		DEBUG_RX_TOTAL_BYTE_CONUT,
++		DEBUG_INVALID_TID_BSR,
++		DEBUG_UL_LONG_TERM_PPDU_TYPE,
++		DEBUG_DL_LONG_TERM_PPDU_TYPE,
++		DEBUG_PPDU_CLASS_TRIG_ONOFF,
++		DEBUG_AIRTIME_BUSY_STATUS,
++		DEBUG_UL_OFDMA_MIMO_STATUS,
++		DEBUG_RU_CANDIDATE,
++		DEBUG_MEC_UPDATE_AMSDU,
++	} debug;
++	int ret;
++
++	for (debug = DEBUG_BSRP_STATUS; debug <= DEBUG_MEC_UPDATE_AMSDU; debug++) {
++		ret = mt7996_mcu_muru_dbg_info(dev, debug,
++					       dev->fw_debug_bin & BIT(0));
++		if (ret)
++			return ret;
++	}
++
++	return 0;
++}
++
+ static int
+ mt7996_fw_debug_bin_set(void *data, u64 val)
+ {
+@@ -431,6 +461,7 @@ mt7996_fw_debug_bin_set(void *data, u64 val)
+ 		.remove_buf_file = remove_buf_file_cb,
+ 	};
+ 	struct mt7996_dev *dev = data;
++	int ret;
+ 
+ 	if (!dev->relay_fwlog) {
+ 		dev->relay_fwlog = relay_open("fwlog_data", dev->debugfs_dir,
+@@ -443,6 +474,10 @@ mt7996_fw_debug_bin_set(void *data, u64 val)
+ 
+ 	relay_reset(dev->relay_fwlog);
+ 
++	ret = mt7996_fw_debug_muru_set(dev);
++	if (ret)
++		return ret;
++
+ 	return mt7996_fw_debug_wm_set(dev, dev->fw_debug_wm);
+ }
+ 
+diff --git a/mt7996/mt7996.h b/mt7996/mt7996.h
+index 34159f97..29976860 100644
+--- a/mt7996/mt7996.h
++++ b/mt7996/mt7996.h
+@@ -677,6 +677,7 @@ u32 mt7996_wed_init_buf(void *ptr, dma_addr_t phys, int token_id);
+ 
+ #ifdef CONFIG_MTK_DEBUG
+ int mt7996_mtk_init_debugfs(struct mt7996_phy *phy, struct dentry *dir);
++int mt7996_mcu_muru_dbg_info(struct mt7996_dev *dev, u16 item, u8 val);
+ #endif
+ 
+ #ifdef CONFIG_NET_MEDIATEK_SOC_WED
+diff --git a/mt7996/mtk_mcu.c b/mt7996/mtk_mcu.c
+index e8870166..c16b25ab 100644
+--- a/mt7996/mtk_mcu.c
++++ b/mt7996/mtk_mcu.c
+@@ -15,4 +15,25 @@
+ 
+ 
+ 
++int mt7996_mcu_muru_dbg_info(struct mt7996_dev *dev, u16 item, u8 val)
++{
++	struct {
++		u8 __rsv1[4];
++
++		__le16 tag;
++		__le16 len;
++
++		__le16 item;
++		u8 __rsv2[2];
++		__le32 value;
++	} __packed req = {
++		.tag = cpu_to_le16(UNI_CMD_MURU_DBG_INFO),
++		.len = cpu_to_le16(sizeof(req) - 4),
++		.item = cpu_to_le16(item),
++		.value = cpu_to_le32(val),
++	};
++
++	return mt76_mcu_send_msg(&dev->mt76, MCU_WM_UNI_CMD(MURU), &req,
++				 sizeof(req), true);
++}
+ #endif
+diff --git a/mt7996/mtk_mcu.h b/mt7996/mtk_mcu.h
+index e741aa27..7f4d4e02 100644
+--- a/mt7996/mtk_mcu.h
++++ b/mt7996/mtk_mcu.h
+@@ -10,6 +10,9 @@
+ 
+ #ifdef CONFIG_MTK_DEBUG
+ 
++enum {
++	UNI_CMD_MURU_DBG_INFO = 0x18,
++};
+ 
+ #endif
+ 
+-- 
+2.18.0
+

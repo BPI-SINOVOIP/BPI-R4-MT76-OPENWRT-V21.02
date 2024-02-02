@@ -1,0 +1,322 @@
+From 43d2e883f22101832564f6170fcdceb0efd7aa69 Mon Sep 17 00:00:00 2001
+From: StanleyYP Wang <StanleyYP.Wang@mediatek.com>
+Date: Fri, 21 Jul 2023 10:41:28 +0800
+Subject: [PATCH 17/25] mtk: wifi: mt76: mt7996: add kite fw & default bin for
+ different sku variants
+
+Add fem type (2i5i, 2i5e, 2e5e, ...)
+Add Kite default bin for each fem type since loading wrong default bin
+will fail to setup interface
+Add eeprom fem type check
+
+Add adie 7976c efuse check
+Efuse offset 0x470 will be set to 0xc after final test if 7976c adie is used
+Chip manufactoring factories may transfer, which leads to different adie chip versions,
+so we add this efuse check to avoid 7976c recognition failure.
+
+Signed-off-by: StanleyYP Wang <StanleyYP.Wang@mediatek.com>
+
+GPIO ADie Combination of BE5040 should be considered as don't care
+instead of 0
+
+Signed-off-by: StanleyYP Wang <StanleyYP.Wang@mediatek.com>
+
+Only check eeprom chip id when fem type (= MT7996_FEM_UNSET) is not determined yet
+Without this fix, mt7996_check_eeprom will return EINVAL in mt7996_eeprom_check_fw_mode
+
+Signed-off-by: StanleyYP Wang <StanleyYP.Wang@mediatek.com>
+---
+ mt7996/eeprom.c | 38 +++++++++++++++++++++++++++++--
+ mt7996/eeprom.h |  1 +
+ mt7996/init.c   | 59 +++++++++++++++++++++++++++++++++++++++++++++++++
+ mt7996/mcu.c    |  7 +++++-
+ mt7996/mt7996.h | 49 +++++++++++++++++++++++++---------------
+ mt7996/regs.h   |  7 ++++++
+ 6 files changed, 140 insertions(+), 21 deletions(-)
+
+diff --git a/mt7996/eeprom.c b/mt7996/eeprom.c
+index 7505a8b7..3260d1fe 100644
+--- a/mt7996/eeprom.c
++++ b/mt7996/eeprom.c
+@@ -9,14 +9,33 @@
+ 
+ static int mt7996_check_eeprom(struct mt7996_dev *dev)
+ {
++#define FEM_INT				0
++#define FEM_EXT				3
+ 	u8 *eeprom = dev->mt76.eeprom.data;
++	u8 i, fem[__MT_MAX_BAND], fem_type;
+ 	u16 val = get_unaligned_le16(eeprom);
+ 
++	for (i = 0; i < __MT_MAX_BAND; i++)
++		fem[i] = eeprom[MT_EE_WIFI_CONF + 6 + i] & MT_EE_WIFI_PA_LNA_CONFIG;
++
+ 	switch (val) {
+ 	case 0x7990:
+ 		return is_mt7996(&dev->mt76) ? 0 : -EINVAL;
+ 	case 0x7992:
+-		return is_mt7992(&dev->mt76) ? 0 : -EINVAL;
++		if (dev->fem_type == MT7996_FEM_UNSET)
++			return is_mt7992(&dev->mt76) ? 0 : -EINVAL;
++
++		if (fem[0] == FEM_EXT && fem[1] == FEM_EXT)
++			fem_type = MT7996_FEM_EXT;
++		else if (fem[0] == FEM_INT && fem[1] == FEM_INT)
++			fem_type = MT7996_FEM_INT;
++		else if (fem[0] == FEM_INT && fem[1] == FEM_EXT)
++			fem_type = MT7996_FEM_MIX;
++		else
++			return -EINVAL;
++
++		return (is_mt7992(&dev->mt76) ? 0 : -EINVAL) |
++		       (dev->fem_type == fem_type ? 0 : -EINVAL);
+ 	default:
+ 		return -EINVAL;
+ 	}
+@@ -30,7 +49,18 @@ static char *mt7996_eeprom_name(struct mt7996_dev *dev)
+ 			return MT7996_EEPROM_DEFAULT_404;
+ 		return MT7996_EEPROM_DEFAULT;
+ 	case 0x7992:
+-		return MT7992_EEPROM_DEFAULT;
++		if (dev->chip_sku == MT7992_SKU_23) {
++			if (dev->fem_type == MT7996_FEM_INT)
++				return MT7992_EEPROM_DEFAULT_23;
++			return MT7992_EEPROM_DEFAULT_23_EXT;
++		} else if (dev->chip_sku == MT7992_SKU_44) {
++			if (dev->fem_type == MT7996_FEM_INT)
++				return MT7992_EEPROM_DEFAULT;
++			else if (dev->fem_type == MT7996_FEM_MIX)
++				return MT7992_EEPROM_DEFAULT_MIX;
++			return MT7992_EEPROM_DEFAULT_EXT;
++		}
++		return MT7992_EEPROM_DEFAULT_24;
+ 	default:
+ 		return MT7996_EEPROM_DEFAULT;
+ 	}
+@@ -221,6 +251,10 @@ int mt7996_eeprom_init(struct mt7996_dev *dev)
+ {
+ 	int ret;
+ 
++	ret = mt7996_get_chip_sku(dev);
++	if (ret)
++		return ret;
++
+ 	ret = mt7996_eeprom_load(dev);
+ 	if (ret < 0) {
+ 		if (ret != -EINVAL)
+diff --git a/mt7996/eeprom.h b/mt7996/eeprom.h
+index 412d6e2f..72c38ad3 100644
+--- a/mt7996/eeprom.h
++++ b/mt7996/eeprom.h
+@@ -29,6 +29,7 @@ enum mt7996_eeprom_field {
+ #define MT_EE_WIFI_CONF0_BAND_SEL		GENMASK(2, 0)
+ #define MT_EE_WIFI_CONF1_BAND_SEL		GENMASK(5, 3)
+ #define MT_EE_WIFI_CONF2_BAND_SEL		GENMASK(2, 0)
++#define MT_EE_WIFI_PA_LNA_CONFIG		GENMASK(1, 0)
+ 
+ #define MT_EE_WIFI_CONF1_TX_PATH_BAND0		GENMASK(5, 3)
+ #define MT_EE_WIFI_CONF2_TX_PATH_BAND1		GENMASK(2, 0)
+diff --git a/mt7996/init.c b/mt7996/init.c
+index 1b8a1bf6..5db85939 100644
+--- a/mt7996/init.c
++++ b/mt7996/init.c
+@@ -882,6 +882,65 @@ out:
+ #endif
+ }
+ 
++int mt7996_get_chip_sku(struct mt7996_dev *dev)
++{
++#define MT7976C_CHIP_VER	0x8a10
++#define MT7976C_HL_CHIP_VER	0x8b00
++#define MT7976C_PS_CHIP_VER	0x8c10
++#define MT7976C_EFUSE_OFFSET	0x470
++#define MT7976C_EFUSE_VALUE	0xc
++	u32 regval, val = mt76_rr(dev, MT_PAD_GPIO);
++	u16 adie_chip_id, adie_chip_ver;
++	u8 adie_comb, adie_num, adie_idx = 0;
++
++	switch (mt76_chip(&dev->mt76)) {
++	case 0x7990:
++		adie_comb = FIELD_GET(MT_PAD_GPIO_ADIE_COMB, val);
++		if (adie_comb <= 1)
++			dev->chip_sku = MT7996_SKU_444;
++		else
++			dev->chip_sku = MT7996_SKU_404;
++		break;
++	case 0x7992:
++		adie_comb = FIELD_GET(MT_PAD_GPIO_ADIE_COMB_7992, val);
++		adie_num = FIELD_GET(MT_PAD_GPIO_ADIE_NUM_7992, val);
++		adie_idx = !adie_num;
++		if (adie_num)
++			dev->chip_sku = MT7992_SKU_23;
++		else if (adie_comb)
++			dev->chip_sku = MT7992_SKU_44;
++		else
++			dev->chip_sku = MT7992_SKU_24;
++		break;
++	default:
++		return -EINVAL;
++	}
++
++	if (test_bit(MT76_STATE_MCU_RUNNING, &dev->mphy.state)) {
++		u8 buf[MT7996_EEPROM_BLOCK_SIZE];
++		u8 idx = MT7976C_EFUSE_OFFSET % MT7996_EEPROM_BLOCK_SIZE;
++		bool is_7976c;
++
++		mt7996_mcu_rf_regval(dev, MT_ADIE_CHIP_ID(adie_idx), &regval, false);
++		adie_chip_id = FIELD_GET(MT_ADIE_CHIP_ID_MASK, regval);
++		adie_chip_ver = FIELD_GET(MT_ADIE_VERSION_MASK, regval);
++		mt7996_mcu_get_eeprom(dev, MT7976C_EFUSE_OFFSET, buf);
++		is_7976c = (adie_chip_ver == MT7976C_CHIP_VER) ||
++			   (adie_chip_ver == MT7976C_HL_CHIP_VER) ||
++			   (adie_chip_ver == MT7976C_PS_CHIP_VER) ||
++			   (buf[idx] == MT7976C_EFUSE_VALUE);
++		if (adie_chip_id == 0x7975 || (adie_chip_id == 0x7976 && is_7976c) ||
++		    adie_chip_id == 0x7979)
++			dev->fem_type = MT7996_FEM_INT;
++		else if (adie_chip_id == 0x7977 && adie_comb == 1)
++			dev->fem_type = MT7996_FEM_MIX;
++		else
++			dev->fem_type = MT7996_FEM_EXT;
++	}
++
++	return 0;
++}
++
+ static int mt7996_init_hardware(struct mt7996_dev *dev)
+ {
+ 	int ret, idx;
+diff --git a/mt7996/mcu.c b/mt7996/mcu.c
+index 48a1e822..8a3b9f81 100644
+--- a/mt7996/mcu.c
++++ b/mt7996/mcu.c
+@@ -14,7 +14,12 @@
+ 	char *_fw;						\
+ 	switch (mt76_chip(&(_dev)->mt76)) {			\
+ 	case 0x7992:						\
+-		_fw = MT7992_##name;				\
++		if ((_dev)->chip_sku == MT7992_SKU_23)		\
++			_fw = MT7992_##name##_23;		\
++		else if ((_dev)->chip_sku == MT7992_SKU_24)	\
++			_fw = MT7992_##name##_24;		\
++		else						\
++			_fw = MT7992_##name;			\
+ 		break;						\
+ 	case 0x7990:						\
+ 	default:						\
+diff --git a/mt7996/mt7996.h b/mt7996/mt7996.h
+index eab96139..c34cb76b 100644
+--- a/mt7996/mt7996.h
++++ b/mt7996/mt7996.h
+@@ -39,9 +39,24 @@
+ #define MT7992_FIRMWARE_DSP		"mediatek/mt7996/mt7992_dsp.bin"
+ #define MT7992_ROM_PATCH		"mediatek/mt7996/mt7992_rom_patch.bin"
+ 
++#define MT7992_FIRMWARE_WA_24		"mediatek/mt7996/mt7992_wa_24.bin"
++#define MT7992_FIRMWARE_WM_24		"mediatek/mt7996/mt7992_wm_24.bin"
++#define MT7992_FIRMWARE_DSP_24		"mediatek/mt7996/mt7992_dsp_24.bin"
++#define MT7992_ROM_PATCH_24		"mediatek/mt7996/mt7992_rom_patch_24.bin"
++
++#define MT7992_FIRMWARE_WA_23		"mediatek/mt7996/mt7992_wa_23.bin"
++#define MT7992_FIRMWARE_WM_23		"mediatek/mt7996/mt7992_wm_23.bin"
++#define MT7992_FIRMWARE_DSP_23		"mediatek/mt7996/mt7992_dsp_23.bin"
++#define MT7992_ROM_PATCH_23		"mediatek/mt7996/mt7992_rom_patch_23.bin"
++
+ #define MT7996_EEPROM_DEFAULT		"mediatek/mt7996/mt7996_eeprom.bin"
+ #define MT7996_EEPROM_DEFAULT_404	"mediatek/mt7996/mt7996_eeprom_dual_404.bin"
+-#define MT7992_EEPROM_DEFAULT		"mediatek/mt7996/mt7992_eeprom.bin"
++#define MT7992_EEPROM_DEFAULT		"mediatek/mt7996/mt7992_eeprom_2i5i.bin"
++#define MT7992_EEPROM_DEFAULT_EXT	"mediatek/mt7996/mt7992_eeprom_2e5e.bin"
++#define MT7992_EEPROM_DEFAULT_MIX	"mediatek/mt7996/mt7992_eeprom_2i5e.bin"
++#define MT7992_EEPROM_DEFAULT_24	"mediatek/mt7996/mt7992_eeprom_24_2i5i.bin"
++#define MT7992_EEPROM_DEFAULT_23	"mediatek/mt7996/mt7992_eeprom_23_2i5i.bin"
++#define MT7992_EEPROM_DEFAULT_23_EXT	"mediatek/mt7996/mt7992_eeprom_23_2e5e.bin"
+ #define MT7996_EEPROM_SIZE		7680
+ #define MT7996_EEPROM_BLOCK_SIZE	16
+ #define MT7996_TOKEN_SIZE		16384
+@@ -89,11 +104,24 @@ struct mt7996_sta;
+ struct mt7996_dfs_pulse;
+ struct mt7996_dfs_pattern;
+ 
++enum mt7996_fem_type {
++	MT7996_FEM_UNSET,
++	MT7996_FEM_EXT,
++	MT7996_FEM_INT,
++	MT7996_FEM_MIX,
++};
++
+ enum mt7996_sku_type {
+ 	MT7996_SKU_404,
+ 	MT7996_SKU_444,
+ };
+ 
++enum mt7992_sku_type {
++	MT7992_SKU_23,
++	MT7992_SKU_24,
++	MT7992_SKU_44,
++};
++
+ enum mt7996_ram_type {
+ 	MT7996_RAM_TYPE_WM,
+ 	MT7996_RAM_TYPE_WA,
+@@ -264,6 +292,7 @@ struct mt7996_dev {
+ 	struct mt7996_phy *rdd2_phy;
+ 
+ 	u8 chip_sku;
++	u8 fem_type;
+ 
+ 	u16 chainmask;
+ 	u8 chainshift[__MT_MAX_BAND];
+@@ -407,23 +436,6 @@ mt7996_phy3(struct mt7996_dev *dev)
+ 	return __mt7996_phy(dev, MT_BAND2);
+ }
+ 
+-static inline int
+-mt7996_get_chip_sku(struct mt7996_dev *dev)
+-{
+-	u32 val = mt76_rr(dev, MT_PAD_GPIO);
+-
+-	/* reserve for future variants */
+-	switch (mt76_chip(&dev->mt76)) {
+-	case 0x7990:
+-		dev->chip_sku = FIELD_GET(MT_PAD_GPIO_ADIE_COMB, val) <= 1;
+-		break;
+-	default:
+-		return -EINVAL;
+-	}
+-
+-	return 0;
+-}
+-
+ static inline bool
+ mt7996_band_valid(struct mt7996_dev *dev, u8 band)
+ {
+@@ -462,6 +474,7 @@ int mt7996_init_tx_queues(struct mt7996_phy *phy, int idx,
+ 			  int n_desc, int ring_base, struct mtk_wed_device *wed);
+ void mt7996_init_txpower(struct mt7996_phy *phy);
+ int mt7996_txbf_init(struct mt7996_dev *dev);
++int mt7996_get_chip_sku(struct mt7996_dev *dev);
+ void mt7996_reset(struct mt7996_dev *dev);
+ int mt7996_run(struct ieee80211_hw *hw);
+ int mt7996_mcu_init(struct mt7996_dev *dev);
+diff --git a/mt7996/regs.h b/mt7996/regs.h
+index 47b429d8..cf12c5e0 100644
+--- a/mt7996/regs.h
++++ b/mt7996/regs.h
+@@ -662,6 +662,13 @@ enum offs_rev {
+ 
+ #define MT_PAD_GPIO				0x700056f0
+ #define MT_PAD_GPIO_ADIE_COMB			GENMASK(16, 15)
++#define MT_PAD_GPIO_ADIE_COMB_7992		GENMASK(17, 16)
++#define MT_PAD_GPIO_ADIE_NUM_7992		BIT(15)
++
++/* ADIE */
++#define MT_ADIE_CHIP_ID(_idx)                  (0x0f00002c + ((_idx) << 28))
++#define MT_ADIE_VERSION_MASK                   GENMASK(15, 0)
++#define MT_ADIE_CHIP_ID_MASK                   GENMASK(31, 16)
+ 
+ #define MT_HW_REV				0x70010204
+ #define MT_HW_REV1				0x8a00
+-- 
+2.18.0
+

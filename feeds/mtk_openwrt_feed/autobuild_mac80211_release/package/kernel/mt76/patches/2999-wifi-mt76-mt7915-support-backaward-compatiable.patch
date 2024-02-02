@@ -1,0 +1,57 @@
+From d862aa94954361f72187565f0835a6bd025d3b7a Mon Sep 17 00:00:00 2001
+From: Rex Lu <rex.lu@mediatek.com>
+Date: Mon, 11 Dec 2023 19:21:16 +0800
+Subject: [PATCH 75/76] wifi: mt76: mt7915: support backaward compatiable
+
+---
+ dma.c  | 20 --------------------
+ mmio.c |  2 +-
+ 2 files changed, 1 insertion(+), 21 deletions(-)
+
+diff --git a/dma.c b/dma.c
+index dfedbcd..174ac89 100644
+--- a/dma.c
++++ b/dma.c
+@@ -781,26 +781,6 @@ int mt76_dma_wed_setup(struct mt76_dev *dev, struct mt76_queue *q, bool reset)
+ 		if (!ret)
+ 			q->wed_regs = q->wed->rx_ring[ring].reg_base;
+ 		break;
+-	case MT76_WED_RRO_Q_DATA:
+-		q->flags &= ~MT_QFLAG_WED;
+-		__mt76_dma_queue_reset(dev, q, false);
+-		mtk_wed_device_rro_rx_ring_setup(q->wed, ring, q->regs);
+-		q->head = q->ndesc - 1;
+-		q->queued = q->head;
+-		break;
+-	case MT76_WED_RRO_Q_MSDU_PG:
+-		q->flags &= ~MT_QFLAG_WED;
+-		__mt76_dma_queue_reset(dev, q, false);
+-		mtk_wed_device_msdu_pg_rx_ring_setup(q->wed, ring, q->regs);
+-		q->head = q->ndesc - 1;
+-		q->queued = q->head;
+-		break;
+-	case MT76_WED_RRO_Q_IND:
+-		q->flags &= ~MT_QFLAG_WED;
+-		mt76_dma_queue_reset(dev, q);
+-		mt76_dma_rx_fill(dev, q);
+-		mtk_wed_device_ind_rx_ring_setup(q->wed, q->regs);
+-		break;
+ 	default:
+ 		ret = -EINVAL;
+ 		break;
+diff --git a/mmio.c b/mmio.c
+index b6617f7..f4d0142 100644
+--- a/mmio.c
++++ b/mmio.c
+@@ -134,7 +134,7 @@ EXPORT_SYMBOL_GPL(mt76_mmio_wed_release_rx_buf);
+ u32 mt76_mmio_wed_init_rx_buf(struct mtk_wed_device *wed, int size)
+ {
+ 	struct mt76_dev *dev = container_of(wed, struct mt76_dev, mmio.wed);
+-	struct mtk_wed_bm_desc *desc = wed->rx_buf_ring.desc;
++	struct mtk_rxbm_desc *desc = wed->rx_buf_ring.desc;
+ 	u32 length;
+ 	int i;
+ 
+-- 
+2.18.0
+

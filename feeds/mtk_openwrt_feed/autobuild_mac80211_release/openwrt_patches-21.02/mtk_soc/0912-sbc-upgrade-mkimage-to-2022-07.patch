@@ -1,0 +1,239 @@
+--- a/tools/libressl/Makefile
++++ b/tools/libressl/Makefile
+@@ -8,8 +8,8 @@
+ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=libressl
+-PKG_VERSION:=3.4.3
+-PKG_HASH:=ff88bffe354818b3ccf545e3cafe454c5031c7a77217074f533271d63c37f08d
++PKG_VERSION:=3.5.3
++PKG_HASH:=3ab5e5eaef69ce20c6b170ee64d785b42235f48f2e62b095fca5d7b6672b8b28
+ PKG_RELEASE:=1
+ 
+ PKG_CPE_ID:=cpe:/a:openbsd:libressl
+@@ -24,11 +24,14 @@ HOST_BUILD_PARALLEL:=1
+ include $(INCLUDE_DIR)/host-build.mk
+ 
+ HOSTCC := $(HOSTCC_NOCACHE)
+-HOST_CONFIGURE_ARGS += --enable-static --disable-shared --disable-tests
++
+ HOST_CFLAGS += $(HOST_FPIC)
+ 
+-ifeq ($(GNU_HOST_NAME),x86_64-linux-gnux32)
+-HOST_CONFIGURE_ARGS += --disable-asm
+-endif
++HOST_CONFIGURE_ARGS += \
++	--enable-static \
++	--disable-shared \
++	--disable-asm \
++	--with-pic \
++	--disable-tests
+ 
+ $(eval $(call HostBuild))
+--- a/tools/Makefile
++++ b/tools/Makefile
+@@ -59,7 +59,7 @@ $(curdir)/libtool/compile := $(curdir)/m
+ $(curdir)/lzma-old/compile := $(curdir)/zlib/compile
+ $(curdir)/make-ext4fs/compile := $(curdir)/zlib/compile
+ $(curdir)/missing-macros/compile := $(curdir)/autoconf/compile
+-$(curdir)/mkimage/compile += $(curdir)/libressl/compile
++$(curdir)/mkimage/compile += $(curdir)/bison/compile $(curdir)/libressl/compile
+ $(curdir)/mklibs/compile := $(curdir)/libtool/compile
+ $(curdir)/mm-macros/compile := $(curdir)/libtool/compile
+ $(curdir)/mpc/compile := $(curdir)/mpfr/compile $(curdir)/gmp/compile
+--- a/tools/mkimage/Makefile
++++ b/tools/mkimage/Makefile
+@@ -7,36 +7,36 @@
+ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=mkimage
+-PKG_VERSION:=2021.01
++PKG_VERSION:=2022.07
+ 
+ PKG_SOURCE:=u-boot-$(PKG_VERSION).tar.bz2
+ PKG_SOURCE_URL:= \
+ 	https://mirror.cyberbits.eu/u-boot \
+ 	https://ftp.denx.de/pub/u-boot \
+ 	ftp://ftp.denx.de/pub/u-boot
+-PKG_HASH:=b407e1510a74e863b8b5cb42a24625344f0e0c2fc7582d8c866bd899367d0454
++PKG_HASH:=92b08eb49c24da14c1adbf70a71ae8f37cc53eeb4230e859ad8b6733d13dcf5e
+ 
+ HOST_BUILD_DIR:=$(BUILD_DIR_HOST)/u-boot-$(PKG_VERSION)
+ 
+ include $(INCLUDE_DIR)/host-build.mk
+ 
+-define Host/Prepare
+-	$(Host/Prepare/Default)
+-	mkdir -p $(HOST_BUILD_DIR)/include/config
+-	touch $(HOST_BUILD_DIR)/include/config/auto.conf
+-	mkdir -p $(HOST_BUILD_DIR)/include/generated/
+-	touch $(HOST_BUILD_DIR)/include/generated/autoconf.h
++define Host/Configure
++	$(MAKE) -C $(HOST_BUILD_DIR) \
++		HOSTCFLAGS="$(HOST_CFLAGS)" \
++		HOSTLDFLAGS="$(HOST_LDFLAGS)" \
++		PKG_CONFIG_EXTRAARGS="--static" \
++		V=$(if $(findstring c,$(OPENWRT_VERBOSE)),1) \
++		tools-only_config
++
++	sed -i 's/CONFIG_TOOLS_MKEFICAPSULE=y/# CONFIG_TOOLS_MKEFICAPSULE is not set/' $(HOST_BUILD_DIR)/.config
+ endef
+ 
+ define Host/Compile
+ 	$(MAKE) -C $(HOST_BUILD_DIR) \
+ 		HOSTCFLAGS="$(HOST_CFLAGS)" \
+ 		HOSTLDFLAGS="$(HOST_LDFLAGS)" \
+-		no-dot-config-targets=tools-only \
+-		CONFIG_MKIMAGE_DTC_PATH=dtc \
+-		CONFIG_FIT=y \
+-		CONFIG_FIT_SIGNATURE=y \
+-		CONFIG_FIT_SIGNATURE_MAX_SIZE=0x10000000 \
++		PKG_CONFIG_EXTRAARGS="--static" \
++		V=$(if $(findstring c,$(OPENWRT_VERBOSE)),1) \
+ 		tools-only
+ endef
+ 
+--- a/tools/mkimage/patches/030-allow-to-use-different-magic.patch
++++ b/tools/mkimage/patches/030-allow-to-use-different-magic.patch
+@@ -2,7 +2,7 @@ This patch makes it possible to set a cu
+ 
+ --- a/tools/mkimage.c
+ +++ b/tools/mkimage.c
+-@@ -21,6 +21,7 @@ static struct image_tool_params params =
++@@ -25,6 +25,7 @@ static struct image_tool_params params =
+  	.arch = IH_ARCH_PPC,
+  	.type = IH_TYPE_KERNEL,
+  	.comp = IH_COMP_GZIP,
+@@ -10,8 +10,8 @@ This patch makes it possible to set a cu
+  	.dtc = MKIMAGE_DEFAULT_DTC_OPTIONS,
+  	.imagename = "",
+  	.imagename2 = "",
+-@@ -82,11 +83,12 @@ static void usage(const char *msg)
+- 			 "          -l ==> list image header information\n",
++@@ -88,11 +89,12 @@ static void usage(const char *msg)
++ 			 "          -q ==> quiet\n",
+  		params.cmdname);
+  	fprintf(stderr,
+ -		"       %s [-x] -A arch -O os -T type -C comp -a addr -e ep -n name -d data_file[:data_file...] image\n"
+@@ -24,16 +24,16 @@ This patch makes it possible to set a cu
+  		"          -a ==> set load address to 'addr' (hex)\n"
+  		"          -e ==> set entry point to 'ep' (hex)\n"
+  		"          -n ==> set image name to 'name'\n"
+-@@ -150,7 +152,7 @@ static void process_args(int argc, char
++@@ -163,7 +165,7 @@ static void process_args(int argc, char
+  	int opt;
+  
+  	while ((opt = getopt(argc, argv,
+--		   "a:A:b:B:c:C:d:D:e:Ef:Fk:i:K:ln:N:p:O:rR:qstT:vVx")) != -1) {
+-+		   "a:A:b:B:c:C:d:D:e:Ef:Fk:i:K:lM:n:N:p:O:rR:qstT:vVx")) != -1) {
++-		   "a:A:b:B:c:C:d:D:e:Ef:FG:k:i:K:ln:N:p:o:O:rR:qstT:vVx")) != -1) {
+++		   "a:A:b:B:c:C:d:D:e:Ef:FG:k:i:K:lM:n:N:p:o:O:rR:qstT:vVx")) != -1) {
+  		switch (opt) {
+  		case 'a':
+  			params.addr = strtoull(optarg, &ptr, 16);
+-@@ -237,6 +239,14 @@ static void process_args(int argc, char
++@@ -254,6 +256,14 @@ static void process_args(int argc, char
+  		case 'l':
+  			params.lflag = 1;
+  			break;
+@@ -61,7 +61,7 @@ This patch makes it possible to set a cu
+  	image_set_load(hdr, addr);
+ --- a/tools/imagetool.h
+ +++ b/tools/imagetool.h
+-@@ -56,6 +56,7 @@ struct image_tool_params {
++@@ -59,6 +59,7 @@ struct image_tool_params {
+  	int arch;
+  	int type;
+  	int comp;
+--- a/tools/mkimage/patches/050-Add-compatibility-with-non-Linux-hosts.patch
++++ b/tools/mkimage/patches/050-Add-compatibility-with-non-Linux-hosts.patch
+@@ -15,11 +15,9 @@ __u64 is not available on FreeBSD, remov
+ Signed-off-by: Hauke Mehrtens <hauke@hauke-m.de>
+ ---
+  include/image.h             | 2 ++
+- include/imx8image.h         | 5 +++++
+  include/linux/posix_types.h | 2 ++
+  include/linux/types.h       | 4 +++-
+- lib/rsa/rsa-sign.c          | 2 +-
+- 5 files changed, 13 insertions(+), 2 deletions(-)
++ 3 files changed, 7 insertions(+), 1 deletion(-)
+ 
+ --- a/include/image.h
+ +++ b/include/image.h
+--- a/tools/mkimage/patches/090-macos-arm64-builing-fix.patch
++++ /dev/null
+@@ -1,47 +0,0 @@
+-This patch fixes compilation issues on MacOS arm64.
+-Based on discussion 
+-https://github.com/u-boot/u-boot/commit/3b142045e8a7f0ab17b6099e9226296af45967d0
+-
+-diff --git a/Makefile b/Makefile
+-index b4f1cbc..551041f 100644
+---- a/Makefile
+-+++ b/Makefile
+-@@ -324,11 +324,6 @@ HOSTCC       = $(call os_x_before, 10, 5, "cc", "gcc")
+- KBUILD_HOSTCFLAGS  += $(call os_x_before, 10, 4, "-traditional-cpp")
+- KBUILD_HOSTLDFLAGS += $(call os_x_before, 10, 5, "-multiply_defined suppress")
+- 
+--# since Lion (10.7) ASLR is on by default, but we use linker generated lists
+--# in some host tools which is a problem then ... so disable ASLR for these
+--# tools
+--KBUILD_HOSTLDFLAGS += $(call os_x_before, 10, 7, "", "-Xlinker -no_pie")
+--
+- # macOS Mojave (10.14.X) 
+- # Undefined symbols for architecture x86_64: "_PyArg_ParseTuple"
+- KBUILD_HOSTLDFLAGS += $(call os_x_after, 10, 14, "-lpython -dynamclib", "")
+-diff --git a/tools/imagetool.h b/tools/imagetool.h
+-index 8726792..d1b72ef 100644
+---- a/tools/imagetool.h
+-+++ b/tools/imagetool.h
+-@@ -270,17 +270,20 @@ int rockchip_copy_image(int fd, struct image_tool_params *mparams);
+-  *  b) we need a API call to get the respective section symbols */
+- #if defined(__MACH__)
+- #include <mach-o/getsect.h>
+-+#include <mach-o/dyld.h>
+- 
+- #define INIT_SECTION(name)  do {					\
+- 		unsigned long name ## _len;				\
+--		char *__cat(pstart_, name) = getsectdata("__TEXT",	\
+-+		char *__cat(pstart_, name) = getsectdata("__DATA",	\
+- 			#name, &__cat(name, _len));			\
+-+			__cat(pstart_, name) +=				\
+-+				_dyld_get_image_vmaddr_slide(0);	\
+- 		char *__cat(pstop_, name) = __cat(pstart_, name) +	\
+- 			__cat(name, _len);				\
+- 		__cat(__start_, name) = (void *)__cat(pstart_, name);	\
+- 		__cat(__stop_, name) = (void *)__cat(pstop_, name);	\
+- 	} while (0)
+--#define SECTION(name)   __attribute__((section("__TEXT, " #name)))
+-+#define SECTION(name)   __attribute__((section("__DATA, " #name)))
+- 
+- struct image_type_params **__start_image_type, **__stop_image_type;
+- #else
+--- /dev/null
++++ b/tools/mkimage/patches/095-tools-disable-TOOLS_FIT_FULL_CHECK.patch
+@@ -0,0 +1,24 @@
++From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
++From: Huangbin Zhan <zhanhb88@gmail.com>
++Date: Fri, 18 Feb 2022 14:19:23 +0800
++Subject: [PATCH] tools: disable TOOLS_FIT_FULL_CHECK
++
++	U-Boot disallows unit addresses by default. Disable TOOLS_FIT_FULL_CHECK
++	to allow at symbol in node names.
++
++https://github.com/openwrt/openwrt/commits/master/scripts/mkits.sh
++https://github.com/u-boot/u-boot/commit/3f04db891a353f4b127ed57279279f851c6b4917
++---
++ tools/Kconfig | 2 +-
++ 1 file changed, 1 insertion(+), 1 deletion(-)
++
++--- a/tools/Kconfig
+++++ b/tools/Kconfig
++@@ -31,7 +31,7 @@ config TOOLS_FIT
++ 	  Enable FIT support in the tools builds.
++
++ config TOOLS_FIT_FULL_CHECK
++-	def_bool y
+++	bool "Do a full check of the FIT"
++ 	help
++ 	  Do a full check of the FIT before using it in the tools builds

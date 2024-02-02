@@ -1,0 +1,23 @@
+diff --git a/package/utils/mtd-utils/Makefile b/package/utils/mtd-utils/Makefile
+index 5a4b03d..5a9372d 100644
+--- a/package/utils/mtd-utils/Makefile
++++ b/package/utils/mtd-utils/Makefile
+@@ -57,7 +57,8 @@ endef
+ MAKE_FLAGS += LDLIBS+="$(LIBGCC_S)"
+ 
+ CONFIGURE_ARGS += \
+-	--disable-tests \
++	--enable-tests \
++	--enable-install-tests \
+ 	--without-crypto \
+ 	--without-xattr \
+ 	--without-zstd \
+@@ -78,6 +79,8 @@ define Package/nand-utils/install
+ 	$(INSTALL_DIR) $(1)/usr/sbin
+ 	$(INSTALL_BIN) \
+ 	$(PKG_INSTALL_DIR)/usr/sbin/{flash_erase,nanddump,nandwrite,nandtest,mtdinfo} $(1)/usr/sbin/
++	$(INSTALL_BIN) \
++	$(PKG_INSTALL_DIR)/usr/lib/mtd-utils/{flash_speed,flash_stress,nandbiterrs} $(1)/usr/sbin/
+ endef
+ 
+ $(eval $(call BuildPackage,ubi-utils))

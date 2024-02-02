@@ -1,0 +1,35 @@
+From c59e5d1ee99fbe46418efb2eacb6755db54b8e57 Mon Sep 17 00:00:00 2001
+From: Peter Chiu <chui-hao.chiu@mediatek.com>
+Date: Mon, 13 Nov 2023 20:15:39 +0800
+Subject: [PATCH 13/25] mtk: wifi: mt76: mt7996: init rcpi to use better init
+ mcs
+
+Signed-off-by: Peter Chiu <chui-hao.chiu@mediatek.com>
+---
+ mt7996/mcu.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/mt7996/mcu.c b/mt7996/mcu.c
+index 8c756b31..48a1e822 100644
+--- a/mt7996/mcu.c
++++ b/mt7996/mcu.c
+@@ -1981,6 +1981,7 @@ static void
+ mt7996_mcu_sta_rate_ctrl_tlv(struct sk_buff *skb, struct mt7996_dev *dev,
+ 			     struct ieee80211_vif *vif, struct ieee80211_sta *sta)
+ {
++#define INIT_RCPI 180
+ 	struct mt7996_vif *mvif = (struct mt7996_vif *)vif->drv_priv;
+ 	struct mt76_phy *mphy = mvif->phy->mt76;
+ 	struct cfg80211_chan_def *chandef = &mphy->chandef;
+@@ -2078,6 +2079,8 @@ mt7996_mcu_sta_rate_ctrl_tlv(struct sk_buff *skb, struct mt7996_dev *dev,
+ 					       IEEE80211_HE_6GHZ_CAP_MAX_AMPDU_LEN_EXP);
+ 	}
+ 	ra->sta_cap = cpu_to_le32(cap);
++
++	memset(ra->rx_rcpi, INIT_RCPI, sizeof(ra->rx_rcpi));
+ }
+ 
+ int mt7996_mcu_add_rate_ctrl(struct mt7996_dev *dev, struct ieee80211_vif *vif,
+-- 
+2.18.0
+

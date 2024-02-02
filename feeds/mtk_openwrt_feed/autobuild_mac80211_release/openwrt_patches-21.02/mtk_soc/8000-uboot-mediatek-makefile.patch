@@ -1,0 +1,43 @@
+diff --git a/package/boot/uboot-mediatek/Makefile b/package/boot/uboot-mediatek/Makefile
+index c46b906..63610fb 100644
+--- a/package/boot/uboot-mediatek/Makefile
++++ b/package/boot/uboot-mediatek/Makefile
+@@ -1,8 +1,12 @@
+ include $(TOPDIR)/rules.mk
+ include $(INCLUDE_DIR)/kernel.mk
+ 
+-PKG_VERSION:=2020.10
+-PKG_HASH:=0d481bbdc05c0ee74908ec2f56a6daa53166cc6a78a0e4fac2ac5d025770a622
++PKG_NAME:=u-boot-mtk
++PKG_VERSION:=2021.01
++PKG_RELEASE:=1
++PKG_SOURCE_PROTO:=git
++PKG_SOURCE_URL:=https://gerrit.mediatek.inc/gateway/bootloader/Uboot-upstream
++PKG_SOURCE_VERSION:=icb-rebb-main
+ 
+ include $(INCLUDE_DIR)/u-boot.mk
+ include $(INCLUDE_DIR)/package.mk
+@@ -17,6 +21,7 @@ endef
+ define U-Boot/mt7622
+   NAME:=MT7622
+   BUILD_SUBTARGET:=mt7622
++  UBOOT_IMAGE:=u-boot.bin
+   UBOOT_CONFIG:=mt7622_rfb
+ endef
+ 
+@@ -39,7 +44,14 @@ define U-Boot/mt7629
+   UBOOT_CONFIG:=mt7629_rfb
+ endef
+ 
+-UBOOT_TARGETS := mt7629 mt7622 mt7623n_bpir2 mt7623a_unielec_u7623
++define U-Boot/mt7986
++  NAME:=MT7986
++  BUILD_SUBTARGET:=mt7986
++  UBOOT_IMAGE:=u-boot.bin
++  UBOOT_CONFIG:=mt7986_fpga
++endef
++
++UBOOT_TARGETS := mt7629 mt7622 mt7623n_bpir2 mt7623a_unielec_u7623 mt7986
+ 
+ UBOOT_MAKE_FLAGS += $(UBOOT_IMAGE)
+ 

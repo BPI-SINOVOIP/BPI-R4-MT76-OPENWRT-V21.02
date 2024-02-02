@@ -1,0 +1,10 @@
+--- a/tools/Makefile
++++ b/tools/Makefile
+@@ -21,6 +21,7 @@ ifneq ($(CONFIG_SDK)$(CONFIG_PACKAGE_kmo
+   BUILD_B43_TOOLS = y
+ endif
+ 
++tools-y += ar-tool
+ tools-y += autoconf autoconf-archive automake bc bison cmake dosfstools
+ tools-y += e2fsprogs fakeroot findutils firmware-utils flex gengetopt
+ tools-y += libressl libtool lzma m4 make-ext4fs missing-macros mkimage

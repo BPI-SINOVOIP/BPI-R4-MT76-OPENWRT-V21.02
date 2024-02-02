@@ -1,0 +1,34 @@
+From e154e95bd733a456c5551ae89ef5673d57941b2a Mon Sep 17 00:00:00 2001
+From: Michael-CY Lee <michael-cy.lee@mediatek.com>
+Date: Fri, 8 Dec 2023 16:23:37 +0800
+Subject: [PATCH 10/25] mtk: wifi: mt76: mt7996: Let MAC80211 handles GCMP IGTK
+
+Because the FW does not support IGTK in GCMP mode, mt76 returns "not
+support" to mac80211, and mac80211 will handle the integrity calculation
+and validation.
+
+---
+ mt7996/main.c | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/mt7996/main.c b/mt7996/main.c
+index be914ced..6e88420e 100644
+--- a/mt7996/main.c
++++ b/mt7996/main.c
+@@ -350,9 +350,12 @@ static int mt7996_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
+ 	case WLAN_CIPHER_SUITE_GCMP:
+ 	case WLAN_CIPHER_SUITE_GCMP_256:
+ 	case WLAN_CIPHER_SUITE_SMS4:
++		break;
+ 	case WLAN_CIPHER_SUITE_BIP_GMAC_128:
+ 	case WLAN_CIPHER_SUITE_BIP_GMAC_256:
+-		break;
++		if (key->keyidx == 6 || key->keyidx == 7)
++			break;
++		fallthrough;
+ 	case WLAN_CIPHER_SUITE_WEP40:
+ 	case WLAN_CIPHER_SUITE_WEP104:
+ 	default:
+-- 
+2.18.0
+

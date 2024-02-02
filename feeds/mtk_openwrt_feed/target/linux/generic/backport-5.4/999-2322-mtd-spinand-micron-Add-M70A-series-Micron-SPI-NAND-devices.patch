@@ -1,0 +1,46 @@
+From 5a4cd6ba8f7ae6744ca44f78c761f26e843c0341 Mon Sep 17 00:00:00 2001
+From: Sam Shih <sam.shih@mediatek.com>
+Date: Fri, 2 Jun 2023 13:06:12 +0800
+Subject: [PATCH] 
+ [spi-and-storage][999-2322-mtd-spinand-micron-Add-M70A-series-Micron-SPI-NAND-devices.patch]
+
+---
+ drivers/mtd/nand/spi/micron.c | 22 ++++++++++++++++++++++
+ 1 file changed, 22 insertions(+)
+
+diff --git a/drivers/mtd/nand/spi/micron.c b/drivers/mtd/nand/spi/micron.c
+index 956f7710a..d6fd63008 100644
+--- a/drivers/mtd/nand/spi/micron.c
++++ b/drivers/mtd/nand/spi/micron.c
+@@ -137,6 +137,28 @@ static const struct spinand_info micron_spinand_table[] = {
+ 		     0,
+ 		     SPINAND_ECCINFO(&micron_8_ooblayout,
+ 				     micron_8_ecc_get_status)),
++	/* M70A 4Gb 3.3V */
++	SPINAND_INFO("MT29F4G01ABAFD",
++		     SPINAND_ID(SPINAND_READID_METHOD_OPCODE_DUMMY, 0x34),
++		     NAND_MEMORG(1, 4096, 256, 64, 2048, 40, 1, 1, 1),
++		     NAND_ECCREQ(8, 512),
++		     SPINAND_INFO_OP_VARIANTS(&read_cache_variants,
++					      &write_cache_variants,
++					      &update_cache_variants),
++		     SPINAND_HAS_CR_FEAT_BIT,
++		     SPINAND_ECCINFO(&micron_8_ooblayout,
++				     micron_8_ecc_get_status)),
++	/* M70A 4Gb 1.8V */
++	SPINAND_INFO("MT29F4G01ABBFD",
++		     SPINAND_ID(SPINAND_READID_METHOD_OPCODE_DUMMY, 0x35),
++		     NAND_MEMORG(1, 4096, 256, 64, 2048, 40, 1, 1, 1),
++		     NAND_ECCREQ(8, 512),
++		     SPINAND_INFO_OP_VARIANTS(&read_cache_variants,
++					      &write_cache_variants,
++					      &update_cache_variants),
++		     SPINAND_HAS_CR_FEAT_BIT,
++		     SPINAND_ECCINFO(&micron_8_ooblayout,
++				     micron_8_ecc_get_status)),
+ };
+ 
+ static int micron_spinand_init(struct spinand_device *spinand)
+-- 
+2.34.1
+

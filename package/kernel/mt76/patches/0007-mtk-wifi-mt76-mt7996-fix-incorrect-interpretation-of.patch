@@ -1,0 +1,72 @@
+From 27ad6ee9498d3293dca55d04af1fba221460d74c Mon Sep 17 00:00:00 2001
+From: Benjamin Lin <benjamin-jw.lin@mediatek.com>
+Date: Mon, 4 Dec 2023 15:39:00 +0800
+Subject: [PATCH 07/25] mtk: wifi: mt76: mt7996: fix incorrect interpretation
+ of EHT MCS and NSS capabilities
+
+The EHT-MCS Map (20 MHz-Only Non-AP STA) subfield of the Supported EHT-MCS And NSS Set field in the EHT Capabilities element is not present for AP. Therefore, STA should not parse the subfield.
+Moreover, AP should parse the subfield only if STA is 20 MHz-Only, which is confirmed by checking the Supported Channel Width Set subfield in the HE Capabilities element.
+
+Signed-off-by: Benjamin Lin <benjamin-jw.lin@mediatek.com>
+---
+ mt7996/mcu.c | 33 +++++++++++++++++++++++++++++----
+ 1 file changed, 29 insertions(+), 4 deletions(-)
+
+diff --git a/mt7996/mcu.c b/mt7996/mcu.c
+index 5a2e2d12..8c033030 100644
+--- a/mt7996/mcu.c
++++ b/mt7996/mcu.c
+@@ -1237,9 +1237,32 @@ mt7996_mcu_sta_he_6g_tlv(struct sk_buff *skb, struct ieee80211_sta *sta)
+ 	he_6g->capa = sta->deflink.he_6ghz_capa.capa;
+ }
+ 
++static bool
++mt7996_mcu_sta_only_20mhz(struct ieee80211_sta *sta)
++{
++	struct mt7996_sta *msta = (struct mt7996_sta *)sta->drv_priv;
++	u8 bw = sta->deflink.he_cap.he_cap_elem.phy_cap_info[0];
++	u8 band_idx = msta->vif->mt76.band_idx;
++
++	if (band_idx == MT_BAND0) {
++		if (!(bw & IEEE80211_HE_PHY_CAP0_CHANNEL_WIDTH_SET_40MHZ_IN_2G))
++			return true;
++	} else {
++		if (!(bw & (IEEE80211_HE_PHY_CAP0_CHANNEL_WIDTH_SET_40MHZ_80MHZ_IN_5G |
++		            IEEE80211_HE_PHY_CAP0_CHANNEL_WIDTH_SET_160MHZ_IN_5G |
++		            IEEE80211_HE_PHY_CAP0_CHANNEL_WIDTH_SET_80PLUS80_MHZ_IN_5G)))
++			return true;
++	}
++
++	return false;
++}
++
+ static void
+ mt7996_mcu_sta_eht_tlv(struct sk_buff *skb, struct ieee80211_sta *sta)
+ {
++	struct mt7996_sta *msta = (struct mt7996_sta *)sta->drv_priv;
++	struct ieee80211_vif *vif = container_of((void *)msta->vif,
++	                                         struct ieee80211_vif, drv_priv);
+ 	struct ieee80211_eht_mcs_nss_supp *mcs_map;
+ 	struct ieee80211_eht_cap_elem_fixed *elem;
+ 	struct sta_rec_eht *eht;
+@@ -1259,11 +1282,13 @@ mt7996_mcu_sta_eht_tlv(struct sk_buff *skb, struct ieee80211_sta *sta)
+ 	eht->phy_cap = cpu_to_le64(*(u64 *)elem->phy_cap_info);
+ 	eht->phy_cap_ext = cpu_to_le64(elem->phy_cap_info[8]);
+ 
+-	if (sta->deflink.bandwidth == IEEE80211_STA_RX_BW_20)
++	if (vif->type != NL80211_IFTYPE_STATION && mt7996_mcu_sta_only_20mhz(sta))
+ 		memcpy(eht->mcs_map_bw20, &mcs_map->only_20mhz, sizeof(eht->mcs_map_bw20));
+-	memcpy(eht->mcs_map_bw80, &mcs_map->bw._80, sizeof(eht->mcs_map_bw80));
+-	memcpy(eht->mcs_map_bw160, &mcs_map->bw._160, sizeof(eht->mcs_map_bw160));
+-	memcpy(eht->mcs_map_bw320, &mcs_map->bw._320, sizeof(eht->mcs_map_bw320));
++	else {
++		memcpy(eht->mcs_map_bw80, &mcs_map->bw._80, sizeof(eht->mcs_map_bw80));
++		memcpy(eht->mcs_map_bw160, &mcs_map->bw._160, sizeof(eht->mcs_map_bw160));
++		memcpy(eht->mcs_map_bw320, &mcs_map->bw._320, sizeof(eht->mcs_map_bw320));
++	}
+ }
+ 
+ static void
+-- 
+2.18.0
+

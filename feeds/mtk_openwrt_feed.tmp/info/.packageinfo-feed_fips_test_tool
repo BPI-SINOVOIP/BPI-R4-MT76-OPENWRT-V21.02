@@ -1,0 +1,23 @@
+Source-Makefile: feeds/mtk_openwrt_feed/feed/fips_test_tool/Makefile
+
+Package: fips_test_tool
+Submenu: FIPS
+Version: 1.0
+Depends: +libc +USE_GLIBC:librt +USE_GLIBC:libpthread +python3-light
+Conflicts: 
+Menu-Depends: 
+Provides: 
+Section: Utilities
+Category: Utilities
+Repository: base
+Title: FIPS_TEST_TOOL
+Maintainer: 
+Source: 
+Type: ipkg
+Description:   fips_test_tool is a script to pass fips140-3.
+  You can run this tool to pass test vector
+  from NIST in local.
+
+@@
+
+

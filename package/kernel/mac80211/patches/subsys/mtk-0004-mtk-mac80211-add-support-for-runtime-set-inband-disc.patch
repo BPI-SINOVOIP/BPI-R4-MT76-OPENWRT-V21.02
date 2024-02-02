@@ -1,0 +1,183 @@
+From b3f657e7a0ce98c986b3b803a963820d98d82c7f Mon Sep 17 00:00:00 2001
+From: MeiChia Chiu <meichia.chiu@mediatek.com>
+Date: Wed, 19 Oct 2022 13:45:42 +0800
+Subject: [PATCH 04/37] mtk: mac80211: add support for runtime set inband
+ discovery
+
+Signed-off-by: MeiChia Chiu <meichia.chiu@mediatek.com>
+---
+ include/net/cfg80211.h       |  1 +
+ include/net/mac80211.h       |  1 +
+ include/uapi/linux/nl80211.h |  1 +
+ net/mac80211/cfg.c           | 30 +++++++++++++++++++++++++++++-
+ net/wireless/nl80211.c       | 33 ++++++++++++++++++++++++++++-----
+ 5 files changed, 60 insertions(+), 6 deletions(-)
+
+diff --git a/include/net/cfg80211.h b/include/net/cfg80211.h
+index d9a7828..204d1a4 100644
+--- a/include/net/cfg80211.h
++++ b/include/net/cfg80211.h
+@@ -1355,6 +1355,7 @@ struct cfg80211_fils_discovery {
+ 	u32 max_interval;
+ 	size_t tmpl_len;
+ 	const u8 *tmpl;
++	u8 disable;
+ };
+ 
+ /**
+diff --git a/include/net/mac80211.h b/include/net/mac80211.h
+index 2e5b5c6..96e4ec9 100644
+--- a/include/net/mac80211.h
++++ b/include/net/mac80211.h
+@@ -526,6 +526,7 @@ struct ieee80211_ftm_responder_params {
+ struct ieee80211_fils_discovery {
+ 	u32 min_interval;
+ 	u32 max_interval;
++	u8 disable;
+ };
+ 
+ /**
+diff --git a/include/uapi/linux/nl80211.h b/include/uapi/linux/nl80211.h
+index 88eb85c..72ef4d9 100644
+--- a/include/uapi/linux/nl80211.h
++++ b/include/uapi/linux/nl80211.h
+@@ -7619,6 +7619,7 @@ enum nl80211_fils_discovery_attributes {
+ 	NL80211_FILS_DISCOVERY_ATTR_INT_MIN,
+ 	NL80211_FILS_DISCOVERY_ATTR_INT_MAX,
+ 	NL80211_FILS_DISCOVERY_ATTR_TMPL,
++	NL80211_UNSOL_BCAST_PROBE_RESP_ATTR_INTE,
+ 
+ 	/* keep last */
+ 	__NL80211_FILS_DISCOVERY_ATTR_LAST,
+diff --git a/net/mac80211/cfg.c b/net/mac80211/cfg.c
+index f4649d1..baff0e6 100644
+--- a/net/mac80211/cfg.c
++++ b/net/mac80211/cfg.c
+@@ -990,6 +990,7 @@ static int ieee80211_set_fils_discovery(struct ieee80211_sub_if_data *sdata,
+ 	fd = &link_conf->fils_discovery;
+ 	fd->min_interval = params->min_interval;
+ 	fd->max_interval = params->max_interval;
++	fd->disable = params->disable;
+ 
+ 	old = sdata_dereference(link->u.ap.fils_discovery, sdata);
+ 	new = kzalloc(sizeof(*new) + params->tmpl_len, GFP_KERNEL);
+@@ -1513,9 +1514,11 @@ static int ieee80211_change_beacon(struct wiphy *wiphy, struct net_device *dev,
+ 	struct ieee80211_sub_if_data *sdata = IEEE80211_DEV_TO_SUB_IF(dev);
+ 	struct ieee80211_link_data *link;
+ 	struct beacon_data *old;
++	struct cfg80211_ap_settings *ap_params;
++	struct ieee80211_supported_band *sband;
++	u64 changed = 0;
+ 	int err;
+ 	struct ieee80211_bss_conf *link_conf;
+-	u64 changed = 0;
+ 
+ 	sdata_assert_lock(sdata);
+ 
+@@ -1546,6 +1549,31 @@ static int ieee80211_change_beacon(struct wiphy *wiphy, struct net_device *dev,
+ 		changed |= BSS_CHANGED_HE_BSS_COLOR;
+ 	}
+ 
++	sband = ieee80211_get_sband(sdata);
++	if (!sband)
++		return -EINVAL;
++
++	if (sband->band == NL80211_BAND_6GHZ) {
++		ap_params = container_of(params, struct cfg80211_ap_settings, beacon);
++
++		if(ap_params->unsol_bcast_probe_resp.interval) {
++			err = ieee80211_set_unsol_bcast_probe_resp(sdata,
++								   &ap_params->unsol_bcast_probe_resp,
++								   link, link_conf);
++			if (err < 0)
++				return err;
++			changed |= BSS_CHANGED_UNSOL_BCAST_PROBE_RESP;
++		} else {
++			err = ieee80211_set_fils_discovery(sdata,
++							   &ap_params->fils_discovery,
++							   link, link_conf);
++
++			if (err < 0)
++				return err;
++			changed |= BSS_CHANGED_FILS_DISCOVERY;
++		}
++	}
++
+ 	ieee80211_link_info_change_notify(sdata, link, changed);
+ 	return 0;
+ }
+diff --git a/net/wireless/nl80211.c b/net/wireless/nl80211.c
+index 4a12891..680511a 100644
+--- a/net/wireless/nl80211.c
++++ b/net/wireless/nl80211.c
+@@ -423,6 +423,7 @@ nl80211_fils_discovery_policy[NL80211_FILS_DISCOVERY_ATTR_MAX + 1] = {
+ 	[NL80211_FILS_DISCOVERY_ATTR_INT_MAX] = NLA_POLICY_MAX(NLA_U32, 10000),
+ 	[NL80211_FILS_DISCOVERY_ATTR_TMPL] =
+ 			NLA_POLICY_BINARY_RANGE(NL80211_FILS_DISCOVERY_TMPL_MIN_LEN, IEEE80211_MAX_DATA_LEN),
++	[NL80211_UNSOL_BCAST_PROBE_RESP_ATTR_INTE] = NLA_POLICY_MAX(NLA_U32, 20),
+ };
+ 
+ static const struct nla_policy
+@@ -5692,6 +5693,8 @@ static int nl80211_parse_fils_discovery(struct cfg80211_registered_device *rdev,
+ 	fd->tmpl = nla_data(tb[NL80211_FILS_DISCOVERY_ATTR_TMPL]);
+ 	fd->min_interval = nla_get_u32(tb[NL80211_FILS_DISCOVERY_ATTR_INT_MIN]);
+ 	fd->max_interval = nla_get_u32(tb[NL80211_FILS_DISCOVERY_ATTR_INT_MAX]);
++	fd->disable = !(fd->max_interval ||
++			nla_get_u32(tb[NL80211_UNSOL_BCAST_PROBE_RESP_ATTR_INTE]));
+ 
+ 	return 0;
+ }
+@@ -6224,7 +6227,8 @@ static int nl80211_set_beacon(struct sk_buff *skb, struct genl_info *info)
+ 	unsigned int link_id = nl80211_link_id(info->attrs);
+ 	struct net_device *dev = info->user_ptr[1];
+ 	struct wireless_dev *wdev = dev->ieee80211_ptr;
+-	struct cfg80211_beacon_data params;
++	struct cfg80211_ap_settings ap_params;
++	struct cfg80211_beacon_data *params;
+ 	int err;
+ 
+ 	if (dev->ieee80211_ptr->iftype != NL80211_IFTYPE_AP &&
+@@ -6237,17 +6241,36 @@ static int nl80211_set_beacon(struct sk_buff *skb, struct genl_info *info)
+ 	if (!wdev->links[link_id].ap.beacon_interval)
+ 		return -EINVAL;
+ 
+-	err = nl80211_parse_beacon(rdev, info->attrs, &params, info->extack);
++	memset(&ap_params, 0, sizeof(ap_params));
++	params = &ap_params.beacon;
++
++	err = nl80211_parse_beacon(rdev, info->attrs, params, info->extack);
+ 	if (err)
+ 		goto out;
+ 
++	if (info->attrs[NL80211_ATTR_FILS_DISCOVERY]) {
++		err = nl80211_parse_fils_discovery(rdev,
++			   info->attrs[NL80211_ATTR_FILS_DISCOVERY],
++			   &ap_params);
++		if (err)
++			goto out;
++	}
++
++	if (info->attrs[NL80211_ATTR_UNSOL_BCAST_PROBE_RESP]) {
++		err = nl80211_parse_unsol_bcast_probe_resp(rdev,
++			   info->attrs[NL80211_ATTR_UNSOL_BCAST_PROBE_RESP],
++			   &ap_params);
++		if (err)
++			goto out;
++	}
++
+ 	wdev_lock(wdev);
+-	err = rdev_change_beacon(rdev, dev, &params);
++	err = rdev_change_beacon(rdev, dev, params);
+ 	wdev_unlock(wdev);
+ 
+ out:
+-	kfree(params.mbssid_ies);
+-	kfree(params.rnr_ies);
++	kfree(params->mbssid_ies);
++	kfree(params->rnr_ies);
+ 	return err;
+ }
+ 
+-- 
+2.18.0
+

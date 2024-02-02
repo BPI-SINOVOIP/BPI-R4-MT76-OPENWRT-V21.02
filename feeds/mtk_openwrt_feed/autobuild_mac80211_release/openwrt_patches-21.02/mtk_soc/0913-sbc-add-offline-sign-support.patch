@@ -1,0 +1,428 @@
+--- a/include/image.mk
++++ b/include/image.mk
+@@ -443,7 +443,10 @@ endif
+ ROOTFS_ENCRYPT = $(if $(ROE_KEY_DIR),$(wildcard $(ROE_KEY_DIR)/$(ROE_KEY_NAME).key),)
+ 
+ DEVICE_CHECK_FIT_KEY = $(if $(wildcard $(FIT_KEY_DIR)/$(FIT_KEY_NAME).key),install-images,install-disabled)
+-DEVICE_CHECK_FIT_DIR = $(if $(FIT_KEY_DIR),$(DEVICE_CHECK_FIT_KEY),install-images)
++DEVICE_CHECK_FIT_DIR = $(if $(FIT_KEY_DIR),$(DEVICE_CHECK_FIT_KEY),install-disabled)
++
++DEVICE_CHECK_OFFLINE_FIT_KEY = $(if $(filter offline%,$(FIT_KEY_NAME)),install-images,$(DEVICE_CHECK_FIT_DIR))
++DEVICE_CHECK_FIT_KEY_NAME = $(if $(FIT_KEY_NAME),$(DEVICE_CHECK_OFFLINE_FIT_KEY),install-images)
+ 
+ DEVICE_EXTRA_PACKAGES = $(call qstrip,$(CONFIG_TARGET_DEVICE_PACKAGES_$(call target_conf,$(BOARD)$(if $(SUBTARGET),_$(SUBTARGET)))_DEVICE_$(1)))
+ 
+@@ -467,7 +470,7 @@ endef
+ define Device/Check
+   $(Device/Check/Common)
+   KDIR_KERNEL_IMAGE := $(KDIR)/$(1)$$(KERNEL_SUFFIX)
+-  _TARGET := $$(if $$(_PROFILE_SET),$$(DEVICE_CHECK_FIT_DIR),install-disabled)
++  _TARGET := $$(if $$(_PROFILE_SET),$$(DEVICE_CHECK_FIT_KEY_NAME),install-disabled)
+   ifndef IB
+     _COMPILE_TARGET := $$(if $(CONFIG_IB)$$(_PROFILE_SET),compile,compile-disabled)
+   endif
+--- a/scripts/mkits.sh
++++ b/scripts/mkits.sh
+@@ -164,11 +164,17 @@ fi
+ 
+ # Conditionally create signature information
+ if [ -n "${KEY_NAME_HINT}" ]; then
++	if [[ "${KEY_NAME_HINT}" == "offline,"* ]]; then
++		KEY_NAME_HINT=$(echo -n "${KEY_NAME_HINT}" | sed "s/^.*[,]//g")
++		SIGN_OFFLINE="
++				sign-offline = <1>;"
++	fi
+ 	SIGNATURE="\
+ 			signature {
+ 				algo = \"sha1,rsa2048\";
+ 				key-name-hint = \"${KEY_NAME_HINT}\";
+ ${SIGN_IMAGES}
++${SIGN_OFFLINE}
+ 			};\
+ "
+ fi
+--- /dev/null
++++ b/tools/mkimage/patches/901-mtk-mkimage-add-offline-sign-support.patch
+@@ -0,0 +1,382 @@
++--- a/tools/image-host.c
+++++ b/tools/image-host.c
++@@ -168,6 +168,9 @@ static int fit_image_setup_sig(struct im
++ {
++ 	const char *node_name;
++ 	const char *padding_name;
+++	const char *offline;
+++	const char offline_suffix[] = ",offline";
+++	char *offline_algo_name = NULL;
++ 
++ 	node_name = fit_get_name(fit, noffset, NULL);
++ 	if (!algo_name) {
++@@ -188,7 +191,21 @@ static int fit_image_setup_sig(struct im
++ 	info->node_offset = noffset;
++ 	info->name = strdup(algo_name);
++ 	info->checksum = image_get_checksum_algo(algo_name);
++-	info->crypto = image_get_crypto_algo(algo_name);
+++
+++	offline = fdt_getprop(fit, noffset, "sign-offline", NULL);
+++	if (offline) {
+++		offline_algo_name = calloc(strlen(algo_name) + strlen(offline_suffix) + 1, sizeof(char));
+++		if (!offline_algo_name)
+++			return -ENOMEM;
+++
+++		strcpy(offline_algo_name, algo_name);
+++		strcat(offline_algo_name, offline_suffix);
+++
+++		info->crypto = image_get_crypto_algo(offline_algo_name);
+++	} else {
+++		info->crypto = image_get_crypto_algo(algo_name);
+++	}
+++
++ 	info->padding = image_get_padding_algo(padding_name);
++ 	info->require_keys = require_keys;
++ 	info->engine_id = engine_id;
++--- a/tools/image-sig-host.c
+++++ b/tools/image-sig-host.c
++@@ -11,6 +11,7 @@
++ #include <u-boot/ecdsa.h>
++ #include <u-boot/rsa.h>
++ #include <u-boot/hash-checksum.h>
+++#include "signoffline.h"
++ 
++ struct checksum_algo checksum_algos[] = {
++ 	{
++@@ -76,6 +77,27 @@ struct crypto_algo crypto_algos[] = {
++ 		.add_verify_data = ecdsa_add_verify_data,
++ 		.verify = ecdsa_verify,
++ 	},
+++	{
+++		.name = "rsa2048,offline",
+++		.key_len = RSA2048_BYTES,
+++		.sign = offline_sign,
+++		.add_verify_data = rsa_add_verify_data,
+++		.verify = offline_verify,
+++	},
+++	{
+++		.name = "rsa3072,offline",
+++		.key_len = RSA3072_BYTES,
+++		.sign = offline_sign,
+++		.add_verify_data = rsa_add_verify_data,
+++		.verify = offline_verify,
+++	},
+++	{
+++		.name = "rsa4096,offline",
+++		.key_len = RSA4096_BYTES,
+++		.sign = offline_sign,
+++		.add_verify_data = rsa_add_verify_data,
+++		.verify = offline_verify,
+++	},
++ };
++ 
++ struct padding_algo padding_algos[] = {
++--- a/tools/Makefile
+++++ b/tools/Makefile
++@@ -89,6 +89,8 @@ RSA_OBJS-$(CONFIG_TOOLS_LIBCRYPTO) := $(
++ 					rsa-sign.o rsa-verify.o \
++ 					rsa-mod-exp.o)
++ 
+++SIGNOFFLINE_OBJS-$(CONFIG_TOOLS_LIBCRYPTO) := signoffline.o
+++
++ ECDSA_OBJS-$(CONFIG_TOOLS_LIBCRYPTO) := $(addprefix lib/ecdsa/, ecdsa-libcrypto.o)
++ 
++ AES_OBJS-$(CONFIG_TOOLS_LIBCRYPTO) := $(addprefix lib/aes/, \
++@@ -149,7 +151,8 @@ dumpimage-mkimage-objs := aisimage.o \
++ 			mtk_image.o \
++ 			$(ECDSA_OBJS-y) \
++ 			$(RSA_OBJS-y) \
++-			$(AES_OBJS-y)
+++			$(AES_OBJS-y) \
+++			$(SIGNOFFLINE_OBJS-y)
++ 
++ dumpimage-objs := $(dumpimage-mkimage-objs) dumpimage.o
++ mkimage-objs   := $(dumpimage-mkimage-objs) mkimage.o
++--- /dev/null
+++++ b/tools/signoffline.h
++@@ -0,0 +1,18 @@
+++// SPDX-License-Identifier: GPL-2.0+
+++/*
+++ * Copyright (C) 2022 MediaTek Incorporation. All Rights Reserved.
+++ *
+++ */
+++
+++#ifndef SIGNOFFLINE_H_
+++#define SIGNOFFLINE_H_
+++
+++int offline_sign(struct image_sign_info *info,
+++		 const struct image_region region[], int region_count,
+++		 uint8_t **sigp, uint *sig_len);
+++
+++int offline_verify(struct image_sign_info *info,
+++		   const struct image_region region[], int region_count,
+++		   uint8_t *sig, uint sig_len);
+++
+++#endif /* SIGNOFFLINE_H_ */
++--- /dev/null
+++++ b/tools/signoffline.c
++@@ -0,0 +1,264 @@
+++// SPDX-License-Identifier: GPL-2.0+
+++/*
+++ * Copyright (C) 2022 MediaTek Incorporation. All Rights Reserved.
+++ *
+++ */
+++#include <stdio.h>
+++#include <stdint.h>
+++#include <image.h>
+++#include <linux/libfdt.h>
+++#include <malloc.h>
+++#include <u-boot/sha512.h>
+++#include "mkimage.h"
+++
+++#define OFFSIGN_MSG_FILE		".msg"
+++#define OFFSIGN_SIG_FILE		".sig"
+++#define OFFSIGN_MAX_TMPFILE_LEN		256
+++#define OFFSIGN_MAX_CMDLINE_LEN		3 * OFFSIGN_MAX_TMPFILE_LEN + 128 + 1
+++#define OPENSSL_PKEYUTL_CMD		"openssl pkeyutl"
+++#define OPENSSL_PKEYUTL_OPER		"-sign"
+++#define OPENSSL_PKEYUTL_PADDING		"-pkeyopt rsa_padding_mode"
+++#define OPENSSL_PKEYUTL_SALT		"-pkeyopt rsa_pss_saltlen:32"
+++
+++static char img_prefix[OFFSIGN_MAX_TMPFILE_LEN];
+++
+++static int get_fit_identifier(const void *fit, char *img_prefix)
+++{
+++	int ret = 0;
+++	int noffset = 0;
+++	int img_noffset = 0;
+++	int len = 0;
+++	const char *prop = NULL;
+++	char *p = NULL, *end_p = NULL;
+++
+++	img_noffset = fdt_path_offset(fit, FIT_IMAGES_PATH);
+++	if (img_noffset < 0) {
+++		fprintf(stderr, "Can't find image parent node: %s\n", FIT_IMAGES_PATH);
+++		return img_noffset;
+++	}
+++
+++	noffset = fdt_subnode_offset(fit, img_noffset, "fdt-1");
+++	if (noffset < 0) {
+++		fprintf(stderr, "Can't find fdt-1 node in %s\n", FIT_IMAGES_PATH);
+++		return noffset;
+++	}
+++
+++	prop = fdt_getprop(fit, noffset, FIT_DESC_PROP, &len);
+++	if (!prop) {
+++		fprintf(stderr, "Can't find %s property in node: fdt-1\n", FIT_DESC_PROP);
+++		return -EINVAL;
+++	}
+++
+++	/* find FIT image name as tmpfile prefix */
+++	p = strstr(prop, "OpenWrt ");
+++	if (!p)
+++		return -EINVAL;
+++
+++	p = strchr(p, ' ');
+++	if (!p)
+++		return -EINVAL;
+++	p += 1;
+++
+++	end_p = strchr(p, ' ');
+++	if (!end_p)
+++		return -EINVAL;
+++
+++	if ((end_p - p) >= OFFSIGN_MAX_TMPFILE_LEN)
+++		return -EINVAL;
+++
+++	strncpy(img_prefix, p, end_p - p);
+++
+++	return ret;
+++}
+++
+++static int prepare_offline_sign(struct image_sign_info *info,
+++				const struct image_region region[],
+++				int region_count)
+++{
+++	int ret = 0;
+++	size_t len = 0;
+++	FILE *f = NULL;
+++	char msg_file[OFFSIGN_MAX_TMPFILE_LEN] = {0};
+++	uint8_t checksum[SHA512_SUM_LEN] = {0};
+++
+++	ret = get_fit_identifier(info->fit, img_prefix);
+++	if (ret)
+++		return ret;
+++
+++	len = snprintf(msg_file, sizeof(msg_file),
+++		       "%s/%s%s", info->keydir, img_prefix, OFFSIGN_MSG_FILE);
+++	if (len < 0)
+++		return -EINVAL;
+++
+++	/* calculate digest */
+++	ret = info->checksum->calculate(info->checksum->name, region,
+++					region_count, checksum);
+++	if (ret) {
+++		fprintf(stderr, "Failed to calculate checksum of regions\n");
+++		return ret;
+++	}
+++
+++	/* write message to be signed to msg_file */
+++	f = fopen(msg_file, "w");
+++	if (!f) {
+++		fprintf(stderr, "Failed to open %s\n", msg_file);
+++		return -EINVAL;
+++	}
+++
+++	len = fwrite(checksum, sizeof(uint8_t),
+++		     info->checksum->checksum_len, f);
+++	if (len < 0) {
+++		fprintf(stderr, "Failed to write to %s\n", msg_file);
+++		ret = -EINVAL;
+++	}
+++
+++	fclose(f);
+++
+++	return ret;
+++}
+++
+++static int sign_offline(struct image_sign_info *info,
+++			const struct image_region region[],
+++			int region_count,
+++			uint8_t **sigp, uint *sig_len)
+++{
+++	int ret = 0;
+++	size_t len = 0;
+++	char cmd[OFFSIGN_MAX_CMDLINE_LEN] = {0};
+++	char padding[8] = {0};
+++
+++	/* check padding */
+++	if (info->padding && !strcmp(info->padding->name, "pss"))
+++		strncpy(padding, "pss", sizeof(padding));
+++	else
+++		strncpy(padding, "pkcs1", sizeof(padding));
+++
+++	len = snprintf(cmd, sizeof(cmd),
+++		"%s %s -in %s/%s%s -inkey %s/%s.key -out %s/%s%s -pkeyopt digest:%s %s:%s",
+++								OPENSSL_PKEYUTL_CMD,
+++								OPENSSL_PKEYUTL_OPER,
+++								info->keydir,
+++								img_prefix,
+++								OFFSIGN_MSG_FILE,
+++								info->keydir,
+++								info->keyname,
+++								info->keydir,
+++								img_prefix,
+++								OFFSIGN_SIG_FILE,
+++								info->checksum->name,
+++								OPENSSL_PKEYUTL_PADDING,
+++								padding);
+++	if (len < 0)
+++		return -EINVAL;
+++
+++	if (!strcmp(padding, "pss")) {
+++		len = snprintf(cmd + len, sizeof(cmd), "%s", OPENSSL_PKEYUTL_SALT);
+++		if (len < 0)
+++			return -EINVAL;
+++	}
+++
+++	printf("%s\n", cmd);
+++
+++	/* execute openssl command */
+++	if (system(cmd) == -1) {
+++		fprintf(stderr,"%s: failed to sign FIT\n", OPENSSL_PKEYUTL_CMD);
+++		return -EINVAL;
+++	}
+++
+++	return ret;
+++}
+++
+++static int post_offline_sign(struct image_sign_info *info,
+++			     uint8_t **sigp, uint *sig_len)
+++{
+++	int ret = 0;
+++	FILE *f = NULL;
+++	size_t len = 0;
+++	void *sig = NULL;
+++	char sig_file[OFFSIGN_MAX_TMPFILE_LEN] = {0};
+++
+++	len = snprintf(sig_file, sizeof(sig_file),
+++		       "%s/%s%s", info->keydir, img_prefix, OFFSIGN_SIG_FILE);
+++	if (len < 0)
+++		return -EINVAL;
+++
+++	/* read signature from sig_file */
+++	f = fopen(sig_file, "rb");
+++	if (!f) {
+++		fprintf(stderr, "Failed to open %s\n", sig_file);
+++		return -EINVAL;
+++	}
+++
+++	sig = calloc(info->crypto->key_len, sizeof(uint8_t));
+++	if (!sig) {
+++		ret = -ENOMEM;
+++		goto post_offline_sign_err;
+++	}
+++
+++	len = fread(sig, sizeof(uint8_t), info->crypto->key_len, f);
+++	if (len < 0) {
+++		fprintf(stderr, "Failed to read from %s\n", sig_file);
+++		ret = -EINVAL;
+++		goto post_offline_sign_err;
+++	}
+++
+++	if (len != info->crypto->key_len) {
+++		fprintf(stderr, "Signature length is invalid\n");
+++		ret = -EINVAL;
+++		goto post_offline_sign_err;
+++	}
+++
+++	fclose(f);
+++
+++	*sigp = sig;
+++	*sig_len= info->crypto->key_len;
+++
+++	return 0;
+++
+++post_offline_sign_err:
+++	fclose(f);
+++	if (sig)
+++		free(sig);
+++
+++	return ret;
+++}
+++
+++int offline_sign(struct image_sign_info *info,
+++		 const struct image_region region[], int region_count,
+++		 uint8_t **sigp, uint *sig_len)
+++{
+++	int ret = 0;
+++
+++	printf("%s:\n", __func__);
+++
+++	ret = prepare_offline_sign(info, region, region_count);
+++	if (ret) {
+++		fprintf(stderr, "prepare_offline_sign() failed\n");
+++		return -EINVAL;
+++	}
+++
+++	ret = sign_offline(info, region, region_count, sigp, sig_len);
+++	if (ret) {
+++		fprintf(stderr, "sign_offline() failed\n");
+++		return -EINVAL;
+++	}
+++
+++	ret = post_offline_sign(info, sigp, sig_len);
+++	if (ret) {
+++		fprintf(stderr, "post_offline_sign() failed\n");
+++		return -EINVAL;
+++	}
+++
+++	return ret;
+++}
+++
+++int offline_verify(struct image_sign_info *info,
+++		   const struct image_region region[], int region_count,
+++		   uint8_t *sig, uint sig_len)
+++{
+++	int ret = 0;
+++
+++	printf("%s:\n", __func__);
+++
+++	return ret;
+++}

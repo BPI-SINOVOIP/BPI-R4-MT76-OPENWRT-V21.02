@@ -1,0 +1,256 @@
+From 32681b271d223bd7646372cae382c11d8784797b Mon Sep 17 00:00:00 2001
+From: Peter Chiu <chui-hao.chiu@mediatek.com>
+Date: Mon, 23 Oct 2023 10:26:01 +0800
+Subject: [PATCH 74/76] Revert "wifi: mt76: fix race condition related to
+ checking tx queue fill status"
+
+This reverts commit f1e1e67d97d1e9a8bb01b59ab20c45ebc985a958.
+---
+ mac80211.c |  27 --------------
+ mt76.h     |   5 ---
+ tx.c       | 108 ++++++++++-------------------------------------------
+ 3 files changed, 20 insertions(+), 120 deletions(-)
+
+diff --git a/mac80211.c b/mac80211.c
+index 09c9eb2..5e01353 100644
+--- a/mac80211.c
++++ b/mac80211.c
+@@ -438,9 +438,6 @@ mt76_phy_init(struct mt76_phy *phy, struct ieee80211_hw *hw)
+ 	struct mt76_dev *dev = phy->dev;
+ 	struct wiphy *wiphy = hw->wiphy;
+ 
+-	INIT_LIST_HEAD(&phy->tx_list);
+-	spin_lock_init(&phy->tx_lock);
+-
+ 	SET_IEEE80211_DEV(hw, dev->dev);
+ 	SET_IEEE80211_PERM_ADDR(hw, phy->macaddr);
+ 
+@@ -673,7 +670,6 @@ int mt76_register_device(struct mt76_dev *dev, bool vht,
+ 	int ret;
+ 
+ 	dev_set_drvdata(dev->dev, dev);
+-	mt76_wcid_init(&dev->global_wcid);
+ 	ret = mt76_phy_init(phy, hw);
+ 	if (ret)
+ 		return ret;
+@@ -729,7 +725,6 @@ void mt76_unregister_device(struct mt76_dev *dev)
+ 	if (IS_ENABLED(CONFIG_MT76_LEDS))
+ 		mt76_led_cleanup(&dev->phy);
+ 	mt76_tx_status_check(dev, true);
+-	mt76_wcid_cleanup(dev, &dev->global_wcid);
+ 	ieee80211_unregister_hw(hw);
+ }
+ EXPORT_SYMBOL_GPL(mt76_unregister_device);
+@@ -1477,9 +1472,6 @@ EXPORT_SYMBOL_GPL(mt76_sta_pre_rcu_remove);
+ 
+ void mt76_wcid_init(struct mt76_wcid *wcid)
+ {
+-	INIT_LIST_HEAD(&wcid->tx_list);
+-	skb_queue_head_init(&wcid->tx_pending);
+-
+ 	INIT_LIST_HEAD(&wcid->list);
+ 	idr_init(&wcid->pktid);
+ }
+@@ -1487,32 +1479,13 @@ EXPORT_SYMBOL_GPL(mt76_wcid_init);
+ 
+ void mt76_wcid_cleanup(struct mt76_dev *dev, struct mt76_wcid *wcid)
+ {
+-	struct mt76_phy *phy = dev->phys[wcid->phy_idx];
+-	struct ieee80211_hw *hw;
+ 	struct sk_buff_head list;
+-	struct sk_buff *skb;
+ 
+ 	mt76_tx_status_lock(dev, &list);
+ 	mt76_tx_status_skb_get(dev, wcid, -1, &list);
+ 	mt76_tx_status_unlock(dev, &list);
+ 
+ 	idr_destroy(&wcid->pktid);
+-
+-	spin_lock_bh(&phy->tx_lock);
+-
+-	if (!list_empty(&wcid->tx_list))
+-		list_del_init(&wcid->tx_list);
+-
+-	spin_lock(&wcid->tx_pending.lock);
+-	skb_queue_splice_tail_init(&wcid->tx_pending, &list);
+-	spin_unlock(&wcid->tx_pending.lock);
+-
+-	spin_unlock_bh(&phy->tx_lock);
+-
+-	while ((skb = __skb_dequeue(&list)) != NULL) {
+-		hw = mt76_tx_status_get_hw(dev, skb);
+-		ieee80211_free_txskb(hw, skb);
+-	}
+ }
+ EXPORT_SYMBOL_GPL(mt76_wcid_cleanup);
+ 
+diff --git a/mt76.h b/mt76.h
+index 699d84e..70801f7 100644
+--- a/mt76.h
++++ b/mt76.h
+@@ -380,9 +380,6 @@ struct mt76_wcid {
+ 	u32 tx_info;
+ 	bool sw_iv;
+ 
+-	struct list_head tx_list;
+-	struct sk_buff_head tx_pending;
+-
+ 	struct list_head list;
+ 	struct idr pktid;
+ 
+@@ -846,8 +843,6 @@ struct mt76_phy {
+ 	unsigned long state;
+ 	u8 band_idx;
+ 
+-	spinlock_t tx_lock;
+-	struct list_head tx_list;
+ 	struct mt76_queue *q_tx[__MT_TXQ_MAX];
+ 
+ 	struct cfg80211_chan_def chandef;
+diff --git a/tx.c b/tx.c
+index 96f9009..c88fb29 100644
+--- a/tx.c
++++ b/tx.c
+@@ -328,32 +328,40 @@ void
+ mt76_tx(struct mt76_phy *phy, struct ieee80211_sta *sta,
+ 	struct mt76_wcid *wcid, struct sk_buff *skb)
+ {
++	struct mt76_dev *dev = phy->dev;
+ 	struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
++	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *)skb->data;
++	struct mt76_queue *q;
++	int qid = skb_get_queue_mapping(skb);
+ 
+ 	if (mt76_testmode_enabled(phy)) {
+ 		ieee80211_free_txskb(phy->hw, skb);
+ 		return;
+ 	}
+ 
+-	if (WARN_ON(skb_get_queue_mapping(skb) >= MT_TXQ_PSD))
+-		skb_set_queue_mapping(skb, MT_TXQ_BE);
++	if (WARN_ON(qid >= MT_TXQ_PSD)) {
++		qid = MT_TXQ_BE;
++		skb_set_queue_mapping(skb, qid);
++	}
++
++	if ((dev->drv->drv_flags & MT_DRV_HW_MGMT_TXQ) &&
++	    !(info->flags & IEEE80211_TX_CTL_HW_80211_ENCAP) &&
++	    !ieee80211_is_data(hdr->frame_control) &&
++	    !ieee80211_is_bufferable_mmpdu(skb)) {
++		qid = MT_TXQ_PSD;
++	}
+ 
+ 	if (wcid && !(wcid->tx_info & MT_WCID_TX_INFO_SET))
+ 		ieee80211_get_tx_rates(info->control.vif, sta, skb,
+ 				       info->control.rates, 1);
+ 
+ 	info->hw_queue |= FIELD_PREP(MT_TX_HW_QUEUE_PHY, phy->band_idx);
++	q = phy->q_tx[qid];
+ 
+-	spin_lock_bh(&wcid->tx_pending.lock);
+-	__skb_queue_tail(&wcid->tx_pending, skb);
+-	spin_unlock_bh(&wcid->tx_pending.lock);
+-
+-	spin_lock_bh(&phy->tx_lock);
+-	if (list_empty(&wcid->tx_list))
+-		list_add_tail(&wcid->tx_list, &phy->tx_list);
+-	spin_unlock_bh(&phy->tx_lock);
+-
+-	mt76_worker_schedule(&phy->dev->tx_worker);
++	spin_lock_bh(&q->lock);
++	__mt76_tx_queue_skb(phy, qid, skb, wcid, sta, NULL);
++	dev->queue_ops->kick(dev, q);
++	spin_unlock_bh(&q->lock);
+ }
+ EXPORT_SYMBOL_GPL(mt76_tx);
+ 
+@@ -584,86 +592,10 @@ void mt76_txq_schedule(struct mt76_phy *phy, enum mt76_txq_id qid)
+ }
+ EXPORT_SYMBOL_GPL(mt76_txq_schedule);
+ 
+-static int
+-mt76_txq_schedule_pending_wcid(struct mt76_phy *phy, struct mt76_wcid *wcid)
+-{
+-	struct mt76_dev *dev = phy->dev;
+-	struct ieee80211_sta *sta;
+-	struct mt76_queue *q;
+-	struct sk_buff *skb;
+-	int ret = 0;
+-
+-	spin_lock(&wcid->tx_pending.lock);
+-	while ((skb = skb_peek(&wcid->tx_pending)) != NULL) {
+-		struct ieee80211_hdr *hdr = (struct ieee80211_hdr *)skb->data;
+-		struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
+-		int qid = skb_get_queue_mapping(skb);
+-
+-		if ((dev->drv->drv_flags & MT_DRV_HW_MGMT_TXQ) &&
+-		    !(info->flags & IEEE80211_TX_CTL_HW_80211_ENCAP) &&
+-		    !ieee80211_is_data(hdr->frame_control) &&
+-		    !ieee80211_is_bufferable_mmpdu(skb))
+-			qid = MT_TXQ_PSD;
+-
+-		q = phy->q_tx[qid];
+-		if (mt76_txq_stopped(q)) {
+-			ret = -1;
+-			break;
+-		}
+-
+-		__skb_unlink(skb, &wcid->tx_pending);
+-		spin_unlock(&wcid->tx_pending.lock);
+-
+-		sta = wcid_to_sta(wcid);
+-		spin_lock(&q->lock);
+-		__mt76_tx_queue_skb(phy, qid, skb, wcid, sta, NULL);
+-		dev->queue_ops->kick(dev, q);
+-		spin_unlock(&q->lock);
+-
+-		spin_lock(&wcid->tx_pending.lock);
+-	}
+-	spin_unlock(&wcid->tx_pending.lock);
+-
+-	return ret;
+-}
+-
+-static void mt76_txq_schedule_pending(struct mt76_phy *phy)
+-{
+-	if (list_empty(&phy->tx_list))
+-		return;
+-
+-	local_bh_disable();
+-	rcu_read_lock();
+-
+-	spin_lock(&phy->tx_lock);
+-	while (!list_empty(&phy->tx_list)) {
+-		struct mt76_wcid *wcid = NULL;
+-		int ret;
+-
+-		wcid = list_first_entry(&phy->tx_list, struct mt76_wcid, tx_list);
+-		list_del_init(&wcid->tx_list);
+-
+-		spin_unlock(&phy->tx_lock);
+-		ret = mt76_txq_schedule_pending_wcid(phy, wcid);
+-		spin_lock(&phy->tx_lock);
+-
+-		if (ret) {
+-			if (list_empty(&wcid->tx_list))
+-				list_add_tail(&wcid->tx_list, &phy->tx_list);
+-			break;
+-		}
+-	}
+-	spin_unlock(&phy->tx_lock);
+-
+-	rcu_read_unlock();
+-	local_bh_enable();
+-}
+-
+ void mt76_txq_schedule_all(struct mt76_phy *phy)
+ {
+ 	int i;
+ 
+-	mt76_txq_schedule_pending(phy);
+ 	for (i = 0; i <= MT_TXQ_BK; i++)
+ 		mt76_txq_schedule(phy, i);
+ }
+-- 
+2.18.0
+

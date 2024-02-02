@@ -1,0 +1,382 @@
+diff --git a/feeds/packages/libs/libaio/Makefile b/feeds/packages/libs/libaio/Makefile
+index 463b965..a0a2719 100644
+--- a/feeds/packages/libs/libaio/Makefile
++++ b/feeds/packages/libs/libaio/Makefile
+@@ -23,7 +23,10 @@ PKG_BUILD_PARALLEL:=1
+ PKG_USE_MIPS16:=0
+ PKG_INSTALL:=1
+ 
++HOST_BUILD_PREFIX:=$(STAGING_DIR_HOST)
++
+ include $(INCLUDE_DIR)/package.mk
++include $(INCLUDE_DIR)/host-build.mk
+ 
+ define Package/libaio
+   SECTION:=libs
+@@ -44,4 +47,13 @@ define Package/libaio/install
+ 	$(CP) $(PKG_INSTALL_DIR)/usr/lib/libaio.so.* $(1)/usr/lib/
+ endef
+ 
++define Host/Compile
++	$(MAKE) -C $(HOST_BUILD_DIR)
++endef
++
++define Host/Install
++	$(MAKE) -C $(HOST_BUILD_DIR) prefix=$(HOST_BUILD_PREFIX) install
++endef
++
+ $(eval $(call BuildPackage,libaio))
++$(eval $(call HostBuild))
+diff --git a/feeds/packages/utils/cryptsetup/Makefile b/feeds/packages/utils/cryptsetup/Makefile
+index bdb249f..8d98957 100644
+--- a/feeds/packages/utils/cryptsetup/Makefile
++++ b/feeds/packages/utils/cryptsetup/Makefile
+@@ -8,12 +8,12 @@
+ include $(TOPDIR)/rules.mk
+ 
+ PKG_NAME:=cryptsetup
+-PKG_VERSION:=2.5.0
+-PKG_RELEASE:=$(AUTORELEASE)
++PKG_VERSION:=2.3.4
++PKG_RELEASE:=2
+ 
+ PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.xz
+ PKG_SOURCE_URL:=@KERNEL/linux/utils/cryptsetup/v2.5
+-PKG_HASH:=9184a6ebbd9ce7eb211152e7f741a6c82f2d1cc0e24a84ec9c52939eee0f0542
++PKG_HASH:=9d16eebb96b53b514778e813019b8dd15fea9fec5aafde9fae5febf59df83773
+ 
+ PKG_MAINTAINER:=Daniel Golle <daniel@makrotopia.org>
+ PKG_LICENSE:=GPL-2.0-or-later LGPL-2.1-or-later
+@@ -24,8 +24,12 @@ PKG_BUILD_PARALLEL:=1
+ 
+ PKG_BUILD_DEPENDS:=!USE_GLIBC:argp-standalone
+ 
++HOST_BUILD_DEPENDS:=lvm2/host libjson-c/host popt/host
++HOST_BUILD_PREFIX:=$(STAGING_DIR_HOST)
++
+ include $(INCLUDE_DIR)/package.mk
+ include $(INCLUDE_DIR)/nls.mk
++include $(INCLUDE_DIR)/host-build.mk
+ 
+ define Package/cryptsetup
+   SECTION:=utils
+@@ -75,6 +79,13 @@ CONFIGURE_VARS += \
+ 
+ TARGET_LDFLAGS += -Wl,--gc-sections $(if $(INTL_FULL),-lintl)
+ 
++HOST_CONFIGURE_ARGS += \
++	--with-crypto-backend=openssl \
++	$(STAGING_DIR_HOST) \
++	--disable-kernel_crypto \
++	--disable-blkid \
++	--enable-libiconv-tiny
++
+ define Build/InstallDev
+ 	$(INSTALL_DIR) $(1)/usr/include
+ 	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/include/libcryptsetup.h $(1)/usr/include
+@@ -98,5 +109,11 @@ define Package/cryptsetup-ssh/install
+ 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/cryptsetup-ssh $(1)/usr/sbin
+ endef
+ 
++define Host/Install
++	$(INSTALL_BIN) $(HOST_BUILD_DIR)/veritysetup $(STAGING_DIR_HOST)/bin/veritysetup
++	$(CP) $(HOST_BUILD_DIR)/.libs $(STAGING_DIR_HOST)/bin/
++endef
++
+ $(eval $(call BuildPackage,cryptsetup))
+ $(eval $(call BuildPackage,cryptsetup-ssh))
++$(eval $(call HostBuild))
+diff --git a/feeds/packages/utils/cryptsetup/patches/0001-dont-use-c89.patch b/feeds/packages/utils/cryptsetup/patches/0001-dont-use-c89.patch
+new file mode 100644
+index 0000000000..c5d4ee90d7
+--- /dev/null
++++ b/feeds/packages/utils/cryptsetup/patches/0001-dont-use-c89.patch
+@@ -0,0 +1,10 @@
++--- a/lib/crypto_backend/argon2/Makemodule.am
+++++ b/lib/crypto_backend/argon2/Makemodule.am
++@@ -1,6 +1,6 @@
++ noinst_LTLIBRARIES += libargon2.la
++
++-libargon2_la_CFLAGS = $(AM_CFLAGS) -std=c89 -pthread -O3
+++libargon2_la_CFLAGS = $(AM_CFLAGS) -pthread -O3
++ libargon2_la_CPPFLAGS = $(AM_CPPFLAGS) \
++ 	-I lib/crypto_backend/argon2 \
++ 	-I lib/crypto_backend/argon2/blake2
+diff --git a/feeds/packages/utils/cryptsetup/patches/0100-add-configure-arg-to-link-with-tiny-libiconv-in-host-build.patch b/feeds/packages/utils/cryptsetup/patches/0100-add-configure-arg-to-link-with-tiny-libiconv-in-host-build.patch
+new file mode 100644
+index 0000000..d418a91
+--- /dev/null
++++ b/feeds/packages/utils/cryptsetup/patches/0100-add-configure-arg-to-link-with-tiny-libiconv-in-host-build.patch
+@@ -0,0 +1,33 @@
++--- a/configure
+++++ b/configure
++@@ -856,6 +856,7 @@ enable_rpath
++ with_libiconv_prefix
++ enable_keyring
++ enable_largefile
+++enable_libiconv_tiny
++ enable_nls
++ with_libintl_prefix
++ enable_fips
++@@ -1583,6 +1584,7 @@ Optional Features:
++   --disable-keyring       disable kernel keyring support and builtin kernel
++                           keyring token
++   --disable-largefile     omit support for large files
+++  --enable-libiconv-tiny  build with libiconv-tiny from OpenWrt
++   --disable-nls           do not use Native Language Support
++   --enable-fips           enable FIPS mode restrictions
++   --enable-pwquality      enable password quality checking using pwquality
++@@ -15038,6 +15040,14 @@ if test "x$enable_largefile" = "xno"; th
++   as_fn_error $? "Building with --disable-largefile is not supported, it can cause data corruption." "$LINENO" 5
++ fi
++ 
+++# Check whether --enable-libiconv-tiny was given.
+++if test "${enable_libiconv_tiny+set}" = set; then
+++  enableval=$enable_libiconv_tiny;
+++  if test ".$enableval" = .yes; then
+++    LIBS="$LIBS -liconv"
+++  fi
+++fi
+++
++ { $as_echo "$as_me:${as_lineno-$LINENO}: checking for an ANSI C-conforming const" >&5
++ $as_echo_n "checking for an ANSI C-conforming const... " >&6; }
++ if ${ac_cv_c_const+:} false; then :
+diff --git a/feeds/packages/utils/lvm2/Makefile b/feeds/packages/utils/lvm2/Makefile
+index af35899..24b485a 100644
+--- a/feeds/packages/utils/lvm2/Makefile
++++ b/feeds/packages/utils/lvm2/Makefile
+@@ -24,7 +24,11 @@ PKG_CPE_ID:=cpe:/a:heinz_mauelshagen:lvm
+ 
+ PKG_BUILD_PARALLEL:=1
+ 
++HOST_BUILD_DEPENDS:=libaio/host
++HOST_BUILD_PREFIX:=$(STAGING_DIR_HOST)
++
+ include $(INCLUDE_DIR)/package.mk
++include $(INCLUDE_DIR)/host-build.mk
+ 
+ define Package/libdevmapper/Default
+   SECTION:=libs
+@@ -58,6 +62,15 @@ $(call Package/libdevmapper/description)
+ 
+ endef
+ 
++define Package/dmsetup
++  SECTION:=utils
++  CATEGORY:=Utilities
++  SUBMENU:=Disc
++  TITLE:=The Linux Kernel Device Mapper userspace setup utility
++  URL:=https://sourceware.org/dm/
++  DEPENDS:=+libdevmapper
++endef
++
+ define Package/lvm2/default
+   SECTION:=utils
+   CATEGORY:=Utilities
+@@ -70,7 +83,7 @@ endef
+ define Package/lvm2
+   $(call Package/lvm2/default)
+   VARIANT := normal
+-  DEPENDS += +libdevmapper
++  DEPENDS += +libdevmapper +dmsetup
+ endef
+ 
+ define Package/lvm2-selinux
+@@ -105,6 +118,16 @@ ifneq ($(shell /bin/sh -c "echo -n 'X'")
+ MAKE_SHELL = SHELL=/bin/bash
+ endif
+ 
++HOST_CONFIGURE_ARGS += \
++	--enable-write_install \
++	--enable-pkgconfig \
++	--disable-cmdlib \
++	--disable-dmeventd \
++	--disable-applib \
++	--disable-fsadm \
++	--disable-readline \
++	--disable-selinux
++
+ define Build/Compile
+ 	$(MAKE) -C $(PKG_BUILD_DIR) \
+ 		CC="$(TARGET_CC)" \
+@@ -130,10 +153,15 @@ endef
+ 
+ Package/libdevmapper-selinux/install = $(Package/libdevmapper/install)
+ 
++define Package/dmsetup/install
++	$(INSTALL_DIR) $(1)/sbin
++	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/dmsetup $(1)/sbin
++	ln -sf dmsetup $(1)/sbin/dmstats
++endef
++
+ define Package/lvm2/install
+ 	$(INSTALL_DIR) $(1)/sbin
+ 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/lvm $(1)/sbin
+-	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/dmsetup $(1)/sbin
+ 	$(INSTALL_DIR) $(1)/etc/lvm
+ 	$(SED) '/^[[:space:]]*\(#\|$$$$\)/d; /cache_dir/s@.*@	cache_dir = "/tmp/lvm/cache"@' $(PKG_INSTALL_DIR)/etc/lvm/lvm.conf
+ 	$(INSTALL_CONF) $(PKG_INSTALL_DIR)/etc/lvm/lvm.conf $(1)/etc/lvm/
+@@ -146,7 +174,7 @@ define Package/lvm2/install
+ 	$(INSTALL_BIN) ./files/lvm2.init $(1)/etc/init.d/lvm2
+ 	$(INSTALL_DIR) $(1)/etc/hotplug.d/block
+ 	$(INSTALL_DATA) ./files/lvm2.hotplug $(1)/etc/hotplug.d/block/20-lvm2
+-	$(FIND) $(PKG_INSTALL_DIR)/usr/sbin/ -type l -exec $(CP) -a {} $(1)/sbin/ \;
++	$(FIND) $(PKG_INSTALL_DIR)/usr/sbin/ -type l ! -name dmstats -exec $(CP) -a {} $(1)/sbin/ \;
+ endef
+ 
+ Package/lvm2-selinux/install = $(Package/lvm2/install)
+@@ -155,9 +183,30 @@ define Package/lvm2/conffiles
+ /etc/lvm/lvm.conf
+ endef
+ 
++define Host/Prepare
++	$(HOST_UNPACK)
++	[ ! -d ./src/ ] || $(CP) ./src/* $(HOST_BUILD_DIR)
++
++	mv $(HOST_BUILD_DIR)/../$(PKG_NAME).$(PKG_VERSION)/* $(HOST_BUILD_DIR)/
++	rmdir $(HOST_BUILD_DIR)/../$(PKG_NAME).$(PKG_VERSION)
++
++	$(Host/Patch)
++endef
++
++define Host/Compile
++	$(call Host/Compile/Default,device-mapper)
++endef
++
++define Host/Install
++	$(call Host/Compile/Default,install_device-mapper)
++endef
++
++
+ Package/lvm2-selinux/conffiles = $(Package/lvm2/conffiles)
+ 
+ $(eval $(call BuildPackage,libdevmapper))
+ $(eval $(call BuildPackage,libdevmapper-selinux))
++$(eval $(call BuildPackage,dmsetup))
+ $(eval $(call BuildPackage,lvm2))
+ $(eval $(call BuildPackage,lvm2-selinux))
++$(eval $(call HostBuild))
+diff -Nurp a/feeds/packages/utils/lvm2/patches/100-change-linker-search-dir-order.patch b/feeds/packages/utils/lvm2/patches/100-change-linker-search-dir-order.patch
+--- a/feeds/packages/utils/lvm2/patches/100-change-linker-search-dir-order.patch
++++ b/feeds/packages/utils/lvm2/patches/100-change-linker-search-dir-order.patch
+@@ -0,0 +1,39 @@
++--- a/libdm/dm-tools/Makefile.in
+++++ b/libdm/dm-tools/Makefile.in
++@@ -52,18 +52,18 @@ include $(top_builddir)/libdm/make.tmpl
++ 
++ CFLAGS_dmsetup.o += $(UDEV_CFLAGS) $(EXTRA_EXEC_CFLAGS)
++ CFLAGS_dmfilemapd.o += $(EXTRA_EXEC_CFLAGS)
++-LIBDM_LIBS = -L$(interfacebuilddir) -ldevmapper
+++LIBDM_LIBS = -ldevmapper
++ LIBDM_SHARED = $(interfacebuilddir)/libdevmapper.so
++ LIBDM_STATIC = $(interfacebuilddir)/libdevmapper.a
++ 
++ dmsetup: dmsetup.o $(LIBDM_SHARED)
++ 	@echo "    [CC] $@"
++-	$(Q) $(CC) $(CFLAGS) $(LDFLAGS) $(EXTRA_EXEC_LDFLAGS) $(ELDFLAGS) \
+++	$(Q) $(CC) $(CFLAGS) -L$(interfacebuilddir) $(LDFLAGS) $(EXTRA_EXEC_LDFLAGS) $(ELDFLAGS) \
++ 	      -o $@ $< $(LIBDM_LIBS) $(LIBS)
++ 
++ dmsetup.static: dmsetup.o $(LIBDM_STATIC)
++ 	@echo "    [CC] $@"
++-	$(Q) $(CC) $(CFLAGS) $(LDFLAGS) -static \
+++	$(Q) $(CC) $(CFLAGS) -L$(interfacebuilddir) $(LDFLAGS) -static \
++ 	      -o $@ $< $(LIBDM_LIBS) $(LIBS) $(STATIC_LIBS)
++ 
++ install_dmsetup_dynamic: dmsetup
++@@ -79,12 +79,12 @@ install_dmsetup_static: dmsetup.static
++ 
++ dmfilemapd: dmfilemapd.o $(LIBDM_SHARED)
++ 	@echo "    [CC] $@"
++-	$(Q) $(CC) $(CFLAGS) $(LDFLAGS) $(EXTRA_EXEC_LDFLAGS) $(ELDFLAGS) \
+++	$(Q) $(CC) $(CFLAGS) -L$(interfacebuilddir) $(LDFLAGS) $(EXTRA_EXEC_LDFLAGS) $(ELDFLAGS) \
++ 	      -o $@ $< $(LIBDM_LIBS) $(LIBS)
++ 
++ dmfilemapd.static: dmfilemapd.o $(LIBDM_STATIC)
++ 	@echo "    [CC] $@"
++-	$(Q) $(CC) $(CFLAGS) $(LDFLAGS) -static \
+++	$(Q) $(CC) $(CFLAGS) -L$(interfacebuilddir) $(LDFLAGS) -static \
++ 	      -o $@ $< $(LIBDM_LIBS) $(LIBS) $(STATIC_LIBS)
++ 
++ install_dmfilemapd_dynamic: dmfilemapd
+diff --git a/package/Makefile b/package/Makefile
+index 58c1ba2..a66851b 100644
+--- a/package/Makefile
++++ b/package/Makefile
+@@ -60,6 +60,7 @@ $(curdir)/merge-index: $(curdir)/merge
+ ifndef SDK
+   $(curdir)/compile: $(curdir)/system/opkg/host/compile
+ endif
++$(curdir)/compile: $(curdir)/cryptsetup/host/compile
+
+ $(curdir)/install: $(TMP_DIR)/.build $(curdir)/merge $(if $(CONFIG_TARGET_PER_DEVICE_ROOTFS),$(curdir)/merge-index)
+        - find $(STAGING_DIR_ROOT) -type d | $(XARGS) chmod 0755
+diff --git a/package/libs/popt/Makefile b/package/libs/popt/Makefile
+index 34ae4d7..2075542 100644
+--- a/package/libs/popt/Makefile
++++ b/package/libs/popt/Makefile
+@@ -19,15 +19,17 @@ PKG_SOURCE_URL:= \
+ PKG_HASH:=e728ed296fe9f069a0e005003c3d6b2dde3d9cad453422a10d6558616d304cc8
+ PKG_LICENSE:=MIT
+
+-PKG_FIXUP:=autoreconf
+-PKG_REMOVE_FILES:=autogen.sh aclocal.m4
+-
+ PKG_INSTALL:=1
+ PKG_BUILD_PARALLEL:=1
+
++HOST_BUILD_PREFIX:=$(STAGING_DIR_HOST)
++
+ include $(INCLUDE_DIR)/package.mk
++include $(INCLUDE_DIR)/host-build.mk
+
+ TARGET_CFLAGS += $(FPIC)
++HOST_CONFIGURE_ARGS += --enable-libiconv-tiny
++HOST_BUILD_DEPENDS := libiconv/host
+
+ define Package/libpopt
+   SECTION:=libs
+@@ -54,4 +56,4 @@ define Package/libpopt/install
+ endef
+
+ $(eval $(call BuildPackage,libpopt))
+-
++$(eval $(call HostBuild))
+diff -urN a/package/libs/popt/patches/0001-add-configure-arg-to-link-with-tiny-libiconv-in-host-build.patch b/package/libs/popt/patches/0001-add-configure-arg-to-link-with-tiny-libiconv-in-host-build.patch
+--- a/package/libs/popt/patches/0001-add-configure-arg-to-link-with-tiny-libiconv-in-host-build.patch	1970-01-01 08:00:00.000000000 +0800
++++ b/package/libs/popt/patches/0001-add-configure-arg-to-link-with-tiny-libiconv-in-host-build.patch	2021-01-06 13:46:47.514721593 +0800
+@@ -0,0 +1,34 @@
++--- a/configure
+++++ b/configure
++@@ -945,6 +945,7 @@ enable_libtool_lock
++ enable_largefile
++ enable_ld_version_script
++ enable_build_gcov
+++enable_libiconv_tiny
++ enable_nls
++ enable_rpath
++ with_libiconv_prefix
++@@ -1604,6 +1605,7 @@ Optional Features:
++                           enable/disable use of linker version script.
++                           (default is system dependent)
++   --enable-build-gcov     build POPT instrumented for gcov
+++  --enable-libiconv-tiny  build with libiconv-tiny from OpenWrt
++   --disable-nls           do not use Native Language Support
++   --disable-rpath         do not hardcode runtime library paths
++ 
++@@ -13334,6 +13336,15 @@ if test "${enable_build_gcov+set}" = set
++ fi
++ 
++ 
+++# Check whether --enable-libiconv-tiny was given.
+++if test "${enable_libiconv_tiny+set}" = set; then
+++  enableval=$enable_libiconv_tiny;
+++  if test ".$enableval" = .yes; then
+++    LIBS="$LIBS -liconv"
+++  fi
+++fi
+++
+++
++ { $as_echo "$as_me:$LINENO: checking for setreuid" >&5
++ $as_echo_n "checking for setreuid... " >&6; }
++ if test "${ac_cv_func_setreuid+set}" = set; then

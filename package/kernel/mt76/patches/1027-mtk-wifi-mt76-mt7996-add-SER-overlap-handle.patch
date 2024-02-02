@@ -1,0 +1,95 @@
+From 0637936c479920fdd7e2b7539d17f30c5146a346 Mon Sep 17 00:00:00 2001
+From: Bo Jiao <Bo.Jiao@mediatek.com>
+Date: Tue, 21 Nov 2023 09:55:46 +0800
+Subject: [PATCH 1027/1044] mtk: wifi: mt76: mt7996: add SER overlap handle
+
+Signed-off-by: Bo Jiao <Bo.Jiao@mediatek.com>
+---
+ mcu.c           | 3 ++-
+ mt7996/mac.c    | 8 ++++++++
+ mt7996/mcu.c    | 8 ++++++++
+ mt7996/mt7996.h | 2 ++
+ 4 files changed, 20 insertions(+), 1 deletion(-)
+
+diff --git a/mcu.c b/mcu.c
+index 2926f715..a7afa2d7 100644
+--- a/mcu.c
++++ b/mcu.c
+@@ -94,7 +94,8 @@ int mt76_mcu_skb_send_and_get_msg(struct mt76_dev *dev, struct sk_buff *skb,
+ 		if (retry && retry_cnt < MT76_MSG_MAX_RETRY_CNT) {
+ 			if (test_bit(MT76_MCU_RESET, &dev->phy.state))
+ 				usleep_range(200000, 500000);
+-			dev_err(dev->dev, "send message %08x timeout, try again.\n", cmd);
++			dev_err(dev->dev, "send message %08x timeout, try again(%d).\n",
++				cmd, (MT76_MSG_MAX_RETRY_CNT - retry_cnt));
+ 		}
+ 
+ 		ret = dev->mcu_ops->mcu_skb_send_msg(dev, skb_tmp, cmd, &seq);
+diff --git a/mt7996/mac.c b/mt7996/mac.c
+index 96627a58..22d7dc6d 100644
+--- a/mt7996/mac.c
++++ b/mt7996/mac.c
+@@ -1876,6 +1876,7 @@ void mt7996_mac_reset_work(struct work_struct *work)
+ 	if (!(READ_ONCE(dev->recovery.state) & MT_MCU_CMD_STOP_DMA))
+ 		return;
+ 
++	dev->recovery.l1_reset_last = dev->recovery.l1_reset;
+ 	dev_info(dev->mt76.dev,"\n%s L1 SER recovery start.",
+ 		 wiphy_name(dev->mt76.hw->wiphy));
+ 
+@@ -1893,6 +1894,10 @@ void mt7996_mac_reset_work(struct work_struct *work)
+ 
+ 	set_bit(MT76_RESET, &dev->mphy.state);
+ 	set_bit(MT76_MCU_RESET, &dev->mphy.state);
++	if (phy2)
++		set_bit(MT76_RESET, &phy2->mt76->state);
++	if (phy3)
++		set_bit(MT76_RESET, &phy3->mt76->state);
+ 	wake_up(&dev->mt76.mcu.wait);
+ 
+ 	mt76_worker_disable(&dev->mt76.tx_worker);
+@@ -2107,6 +2112,9 @@ void mt7996_reset(struct mt7996_dev *dev)
+ 		return;
+ 	}
+ 
++	if ((READ_ONCE(dev->recovery.state) & MT_MCU_CMD_STOP_DMA))
++		dev->recovery.l1_reset++;
++
+ 	queue_work(dev->mt76.wq, &dev->reset_work);
+ 	wake_up(&dev->reset_wait);
+ }
+diff --git a/mt7996/mcu.c b/mt7996/mcu.c
+index 5c695669..eda6c506 100644
+--- a/mt7996/mcu.c
++++ b/mt7996/mcu.c
+@@ -246,6 +246,14 @@ mt7996_mcu_send_message(struct mt76_dev *mdev, struct sk_buff *skb,
+ 	u32 val;
+ 	u8 seq;
+ 
++	if (dev->recovery.l1_reset_last != dev->recovery.l1_reset) {
++		dev_info(dev->mt76.dev,"\n%s L1 SER recovery overlap, drop message %08x.",
++			 wiphy_name(dev->mt76.hw->wiphy), cmd);
++
++		dev_kfree_skb(skb);
++		return -EPERM;
++	}
++
+ 	mdev->mcu.timeout = 20 * HZ;
+ 
+ 	seq = ++dev->mt76.mcu.msg_seq & 0xf;
+diff --git a/mt7996/mt7996.h b/mt7996/mt7996.h
+index 23497b46..c590a8b8 100644
+--- a/mt7996/mt7996.h
++++ b/mt7996/mt7996.h
+@@ -392,6 +392,8 @@ struct mt7996_dev {
+ 	wait_queue_head_t reset_wait;
+ 	struct {
+ 		u32 state;
++		u32 l1_reset;
++		u32 l1_reset_last;
+ 		u32 wa_reset_count;
+ 		u32 wm_reset_count;
+ 		bool hw_full_reset:1;
+-- 
+2.18.0
+

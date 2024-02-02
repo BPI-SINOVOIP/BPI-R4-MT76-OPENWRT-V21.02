@@ -1,0 +1,36 @@
+menu "TOPS Offload Tunnel Protocols Configuration"
+
+config MTK_TOPS_GRE
+	bool
+	default n
+
+config MTK_TOPS_GRETAP
+	bool "Mediatek TOPS L2oGRE HW Offload"
+	default y
+	select MTK_TOPS_GRE
+	select PACKAGE_kmod-gre
+	help
+	  select y for L2oGRE HW offload by tunnel offload processing system
+
+config MTK_TOPS_PPTP
+	bool "Mediatek TOPS PPTP HW Offload"
+	default y
+	select PACKAGE_ppp-mod-pptp
+	select PACKAGE_pptpd
+	help
+	  select y for PPTP HW offload by tunnel offload processing system
+
+config MTK_TOPS_L2TP
+	bool
+	default n
+
+config MTK_TOPS_L2TP_V2
+	bool "Mediatek TOPS L2TPv2 HW Offload"
+	default y
+	select MTK_TOPS_L2TP
+	select PACKAGE_kmod-l2tp
+	select PACKAGE_xl2tpd
+	help
+	  select y for L2TPv2 offload by tunnel offload processing system
+
+endmenu

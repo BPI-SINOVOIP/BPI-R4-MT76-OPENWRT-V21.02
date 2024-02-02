@@ -1,0 +1,76 @@
+From b6fa1060af0c2a8f2d950481fd3d962ba9bcbf41 Mon Sep 17 00:00:00 2001
+From: Howard Hsu <howard-yh.hsu@mediatek.com>
+Date: Wed, 3 Jan 2024 15:21:44 +0800
+Subject: [PATCH 25/25] mtk: wifi: mt76: mt7996: enable hw cso module
+
+The cso module needs to be enabled. The cso mudule can help identify if the traffic
+is TCP traffic. This can assist the firmware in adjusting algorithms to
+improve overall performance.
+
+Signed-off-by: Howard Hsu <howard-yh.hsu@mediatek.com>
+---
+ mt76_connac_mcu.h |  7 +++++++
+ mt7996/mcu.c      | 15 +++++++++++++++
+ 2 files changed, 22 insertions(+)
+
+diff --git a/mt76_connac_mcu.h b/mt76_connac_mcu.h
+index 823b3626..d3c05894 100644
+--- a/mt76_connac_mcu.h
++++ b/mt76_connac_mcu.h
+@@ -610,6 +610,12 @@ struct sta_rec_ra_fixed {
+ 	u8 mmps_mode;
+ } __packed;
+ 
++struct sta_rec_tx_proc {
++	__le16 tag;
++	__le16 len;
++	__le32 flag;
++} __packed;
++
+ /* wtbl_rec */
+ 
+ struct wtbl_req_hdr {
+@@ -777,6 +783,7 @@ struct wtbl_raw {
+ 					 sizeof(struct sta_rec_ra_fixed) + \
+ 					 sizeof(struct sta_rec_he_6g_capa) + \
+ 					 sizeof(struct sta_rec_pn_info) + \
++					 sizeof(struct sta_rec_tx_proc) + \
+ 					 sizeof(struct tlv) +		\
+ 					 MT76_CONNAC_WTBL_UPDATE_MAX_SIZE)
+ 
+diff --git a/mt7996/mcu.c b/mt7996/mcu.c
+index deabdb1f..46ee93c0 100644
+--- a/mt7996/mcu.c
++++ b/mt7996/mcu.c
+@@ -1766,6 +1766,19 @@ mt7996_mcu_sta_bfee_tlv(struct mt7996_dev *dev, struct sk_buff *skb,
+ 	bfee->fb_identity_matrix = (nrow == 1 && tx_ant == 2);
+ }
+ 
++static void
++mt7996_mcu_sta_tx_proc_tlv(struct sk_buff *skb)
++{
++	struct sta_rec_tx_proc *tx_proc;
++	struct tlv *tlv;
++
++	tlv = mt76_connac_mcu_add_tlv(skb, STA_REC_TX_PROC, sizeof(*tx_proc));
++
++	tx_proc = (struct sta_rec_tx_proc *)tlv;
++	/* CSO is enabled if this flag exists. */
++	tx_proc->flag = cpu_to_le32(0);
++}
++
+ static void
+ mt7996_mcu_sta_hdrt_tlv(struct mt7996_dev *dev, struct sk_buff *skb)
+ {
+@@ -2177,6 +2190,8 @@ int mt7996_mcu_add_sta(struct mt7996_dev *dev, struct ieee80211_vif *vif,
+ 
+ 	/* starec hdr trans */
+ 	mt7996_mcu_sta_hdr_trans_tlv(dev, skb, vif, sta);
++	/* starec tx proc */
++	mt7996_mcu_sta_tx_proc_tlv(skb);
+ 
+ 	/* tag order is in accordance with firmware dependency. */
+ 	if (sta) {
+-- 
+2.18.0
+

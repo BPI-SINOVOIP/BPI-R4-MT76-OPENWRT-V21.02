@@ -1,0 +1,42 @@
+From b25ddbf220a6f2098d8983877a0992ea481c6768 Mon Sep 17 00:00:00 2001
+From: Michael-CY Lee <michael-cy.lee@mediatek.com>
+Date: Tue, 14 Nov 2023 11:27:06 +0800
+Subject: [PATCH 1039/1044] mtk: wifi: mt76: mt7996: assign DEAUTH to ALTX
+ queue for CERT
+
+Signed-off-by: Michael-CY Lee <michael-cy.lee@mediatek.com>
+---
+ mt7996/mac.c | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/mt7996/mac.c b/mt7996/mac.c
+index 27e5fb71..408a59c5 100644
+--- a/mt7996/mac.c
++++ b/mt7996/mac.c
+@@ -753,6 +753,8 @@ static void
+ mt7996_mac_write_txwi_80211(struct mt7996_dev *dev, __le32 *txwi,
+ 			    struct sk_buff *skb, struct ieee80211_key_conf *key)
+ {
++	struct mt76_phy *mphy =
++		mt76_dev_phy(&dev->mt76, le32_get_bits(txwi[1], MT_TXD1_TGID));
+ 	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *)skb->data;
+ 	struct ieee80211_mgmt *mgmt = (struct ieee80211_mgmt *)skb->data;
+ 	struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
+@@ -762,6 +764,14 @@ mt7996_mac_write_txwi_80211(struct mt7996_dev *dev, __le32 *txwi,
+ 	u8 fc_type, fc_stype;
+ 	u32 val;
+ 
++	if (ieee80211_is_cert_mode(mphy->hw) && ieee80211_is_deauth(fc)) {
++		/* In WPA3 cert TC-4.8.1, the deauth must be transmitted without
++		 * considering PSM bit
++		 */
++		txwi[0] &= ~cpu_to_le32(MT_TXD0_Q_IDX);
++		txwi[0] |= cpu_to_le32(FIELD_PREP(MT_TXD0_Q_IDX, MT_LMAC_ALTX0));
++	}
++
+ 	if (ieee80211_is_action(fc) &&
+ 	    mgmt->u.action.category == WLAN_CATEGORY_BACK &&
+ 	    mgmt->u.action.u.addba_req.action_code == WLAN_ACTION_ADDBA_REQ)
+-- 
+2.18.0
+

@@ -1,0 +1,22 @@
+Index: lede/target/linux/mediatek/image/Makefile
+===================================================================
+--- lede.orig/target/linux/mediatek/image/Makefile	2023-03-14 10:22:26.601486141 +0800
++++ lede/target/linux/mediatek/image/Makefile	2023-03-14 10:25:01.346275356 +0800
+@@ -18,13 +18,13 @@
+ 
+ # build squashfs-hashed
+ define Build/squashfs-hashed
+-	$(CP) $(ROOTFS/$(FILESYSTEMS)/$(DEVICE_NAME)) $(ROOTFS/$(FILESYSTEMS)/$(DEVICE_NAME))-hashed
++	$(CP) $(ROOTFS/$(FILESYSTEMS)/$(DEVICE_NAME)) $(ROOTFS/$(FILESYSTEMS)/$(DEVICE_NAME))-hashed-$(firstword $(DEVICE_DTS))
+ 	$(TOPDIR)/scripts/make-squashfs-hashed.sh \
+-		$(ROOTFS/$(FILESYSTEMS)/$(DEVICE_NAME))-hashed \
++		$(ROOTFS/$(FILESYSTEMS)/$(DEVICE_NAME))-hashed-$(firstword $(DEVICE_DTS)) \
+ 		$(STAGING_DIR_HOST) \
+ 		$(TOPDIR) \
+-		$(ROOTFS/$(FILESYSTEMS)/$(DEVICE_NAME))-hashed-summary
+-	fdt-patch-dm-verify $(ROOTFS/$(FILESYSTEMS)/$(DEVICE_NAME))-hashed-summary \
++		$(ROOTFS/$(FILESYSTEMS)/$(DEVICE_NAME))-hashed-summary-$(firstword $(DEVICE_DTS))
++	fdt-patch-dm-verify $(ROOTFS/$(FILESYSTEMS)/$(DEVICE_NAME))-hashed-summary-$(firstword $(DEVICE_DTS)) \
+ 		$(KDIR)/image-$(firstword $(DEVICE_DTS)).dtb $(KDIR)/image-sb-$(firstword $(DEVICE_DTS)).dtb \
+ 		$(HASHED_BOOT_DEVICE)
+ endef

@@ -1,0 +1,26 @@
+From fae3ac6f435fd3d8c7cb2366d1ed84eb159745f7 Mon Sep 17 00:00:00 2001
+From: Evelyn Tsai <evelyn.tsai@mediatek.com>
+Date: Sun, 10 Jul 2022 22:18:26 +0800
+Subject: [PATCH] 2222
+
+---
+ package/kernel/linux/modules/netfilter.mk | 3 +--
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+
+diff --git a/package/kernel/linux/modules/netfilter.mk b/package/kernel/linux/modules/netfilter.mk
+index b46fceb..ad89176 100644
+--- a/package/kernel/linux/modules/netfilter.mk
++++ b/package/kernel/linux/modules/netfilter.mk
+@@ -154,8 +154,7 @@ define KernelPackage/nf-flow
+ 	CONFIG_NF_FLOW_TABLE_HW
+   DEPENDS:=+kmod-nf-conntrack
+   FILES:= \
+-	$(LINUX_DIR)/net/netfilter/nf_flow_table.ko \
+-	$(LINUX_DIR)/net/netfilter/nf_flow_table_hw.ko
++	$(LINUX_DIR)/net/netfilter/nf_flow_table.ko
+   AUTOLOAD:=$(call AutoProbe,nf_flow_table nf_flow_table_hw)
+ endef
+ 
+-- 
+2.18.0
+

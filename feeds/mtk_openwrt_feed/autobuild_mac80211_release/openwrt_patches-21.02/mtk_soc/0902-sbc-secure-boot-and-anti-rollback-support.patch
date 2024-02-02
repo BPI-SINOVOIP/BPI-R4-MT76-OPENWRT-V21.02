@@ -1,0 +1,156 @@
+--- a/include/image.mk
++++ b/include/image.mk
+@@ -227,8 +227,7 @@ $(eval $(foreach S,$(NAND_BLOCKSIZE),$(c
+ define Image/mkfs/squashfs-common
+ 	$(STAGING_DIR_HOST)/bin/mksquashfs4 $(call mkfs_target_dir,$(1)) $@ \
+ 		-nopad -noappend -root-owned \
+-		-comp $(SQUASHFSCOMP) $(SQUASHFSOPT) \
+-		-processors 1
++		-comp $(SQUASHFSCOMP) $(SQUASHFSOPT)
+ endef
+ 
+ ifeq ($(CONFIG_TARGET_ROOTFS_SECURITY_LABELS),y)
+@@ -441,6 +440,9 @@ else
+   DEVICE_CHECK_PROFILE = $(CONFIG_TARGET_$(if $(CONFIG_TARGET_MULTI_PROFILE),DEVICE_)$(call target_conf,$(BOARD)$(if $(SUBTARGET),_$(SUBTARGET)))_$(1))
+ endif
+ 
++DEVICE_CHECK_FIT_KEY = $(if $(wildcard $(FIT_KEY_DIR)/$(FIT_KEY_NAME).key),install-images,install-disabled)
++DEVICE_CHECK_FIT_DIR = $(if $(FIT_KEY_DIR),$(DEVICE_CHECK_FIT_KEY),install-images)
++
+ DEVICE_EXTRA_PACKAGES = $(call qstrip,$(CONFIG_TARGET_DEVICE_PACKAGES_$(call target_conf,$(BOARD)$(if $(SUBTARGET),_$(SUBTARGET)))_DEVICE_$(1)))
+ 
+ define merge_packages
+@@ -463,7 +465,7 @@ endef
+ define Device/Check
+   $(Device/Check/Common)
+   KDIR_KERNEL_IMAGE := $(KDIR)/$(1)$$(KERNEL_SUFFIX)
+-  _TARGET := $$(if $$(_PROFILE_SET),install-images,install-disabled)
++  _TARGET := $$(if $$(_PROFILE_SET),$$(DEVICE_CHECK_FIT_DIR),install-disabled)
+   ifndef IB
+     _COMPILE_TARGET := $$(if $(CONFIG_IB)$$(_PROFILE_SET),compile,compile-disabled)
+   endif
+@@ -527,6 +527,21 @@ define Device/Build/compile
+ 
+ endef
+ 
++define Device/Build/per-device-fs
++  ROOTFS/$(1)/$(3) := \
++	$(KDIR)/root.$(1)$$(strip \
++		$$(if $$(FS_OPTIONS/$(1)),+fs=$$(call param_mangle,$$(FS_OPTIONS/$(1)))) \
++	)$$(strip \
++		$(if $(TARGET_PER_DEVICE_ROOTFS),+pkg=$$(ROOTFS_ID/$(3))) \
++	)
++  ifndef IB
++    $$(ROOTFS/$(1)/$(3)): $(if $(TARGET_PER_DEVICE_ROOTFS),target-dir-$$(ROOTFS_ID/$(3)))
++  endif
++
++  $$(KDIR_KERNEL_IMAGE): $$(ROOTFS/$(1)/$(3))
++
++endef
++
+ ifndef IB
+ define Device/Build/dtb
+   ifndef BUILD_DTS_$(1)
+@@ -571,15 +586,6 @@ define Device/Build/image
+ 	  $(BIN_DIR)/$(call IMAGE_NAME,$(1),$(2))$$(GZ_SUFFIX))
+   $(eval $(call Device/Export,$(KDIR)/tmp/$(call IMAGE_NAME,$(1),$(2)),$(1)))
+ 
+-  ROOTFS/$(1)/$(3) := \
+-	$(KDIR)/root.$(1)$$(strip \
+-		$$(if $$(FS_OPTIONS/$(1)),+fs=$$(call param_mangle,$$(FS_OPTIONS/$(1)))) \
+-	)$$(strip \
+-		$(if $(TARGET_PER_DEVICE_ROOTFS),+pkg=$$(ROOTFS_ID/$(3))) \
+-	)
+-  ifndef IB
+-    $$(ROOTFS/$(1)/$(3)): $(if $(TARGET_PER_DEVICE_ROOTFS),target-dir-$$(ROOTFS_ID/$(3)))
+-  endif
+   $(KDIR)/tmp/$(call IMAGE_NAME,$(1),$(2)): $$(KDIR_KERNEL_IMAGE) $$(ROOTFS/$(1)/$(3))
+ 	@rm -f $$@
+ 	[ -f $$(word 1,$$^) -a -f $$(word 2,$$^) ]
+@@ -640,6 +646,10 @@ define Device/Build/artifact
+ endef
+ 
+ define Device/Build
++  $$(eval $$(foreach image,$$(IMAGES), \
++    $$(foreach fs,$$(filter $(TARGET_FILESYSTEMS),$$(FILESYSTEMS)), \
++      $$(call Device/Build/per-device-fs,$$(fs),$$(image),$(1)))))
++
+   $(if $(CONFIG_TARGET_ROOTFS_INITRAMFS),$(call Device/Build/initramfs,$(1)))
+   $(call Device/Build/kernel,$(1))
+ 
+--- a/include/image-commands.mk
++++ b/include/image-commands.mk
+@@ -87,7 +87,7 @@ define Build/append-ubi
+ 		$(if $(UBOOTENV_IN_UBI),--uboot-env) \
+ 		$(if $(KERNEL_IN_UBI),--kernel $(IMAGE_KERNEL)) \
+ 		$(foreach part,$(UBINIZE_PARTS),--part $(part)) \
+-		$(IMAGE_ROOTFS) \
++		$(call param_get_default,rootfs,$(1),$(IMAGE_ROOTFS)) \
+ 		$@.tmp \
+ 		-p $(BLOCKSIZE:%k=%KiB) -m $(PAGESIZE) \
+ 		$(if $(SUBPAGESIZE),-s $(SUBPAGESIZE)) \
+--- a/target/linux/mediatek/image/Makefile
++++ b/target/linux/mediatek/image/Makefile
+@@ -16,6 +16,53 @@ define Build/sysupgrade-emmc
+ 		$(IMAGE_ROOTFS)
+ endef
+ 
++# build squashfs-hashed
++define Build/squashfs-hashed
++	$(CP) $(ROOTFS/$(FILESYSTEMS)/$(DEVICE_NAME)) $(ROOTFS/$(FILESYSTEMS)/$(DEVICE_NAME))-hashed
++	$(TOPDIR)/scripts/make-squashfs-hashed.sh \
++		$(ROOTFS/$(FILESYSTEMS)/$(DEVICE_NAME))-hashed \
++		$(STAGING_DIR_HOST) \
++		$(TOPDIR) \
++		$(ROOTFS/$(FILESYSTEMS)/$(DEVICE_NAME))-hashed-summary
++	fdt-patch-dm-verify $(ROOTFS/$(FILESYSTEMS)/$(DEVICE_NAME))-hashed-summary \
++		$(KDIR)/image-$(firstword $(DEVICE_DTS)).dtb $(KDIR)/image-sb-$(firstword $(DEVICE_DTS)).dtb \
++		$(HASHED_BOOT_DEVICE)
++endef
++
++# build fw-ar-ver
++get_fw_ar_ver = \
++  $(if $(wildcard $(2)),$(shell rm -rf $(2))) \
++  $(if $(wildcard $(1)),$(info $(shell $(STAGING_DIR_HOST)/bin/ar-tool fw_ar_table create_ar_conf $(1) $(2)))) \
++  $(if $(wildcard $(2)),$(eval include $(2))) \
++  $(if $(FW_AR_VER),$(info FW_AR_VER = $(FW_AR_VER)))
++
++define Build/fw-ar-ver
++	$(call get_fw_ar_ver,$(ANTI_ROLLBACK_TABLE),$(AUTO_AR_CONF))
++endef
++
++# build signed fit
++define Build/fit-sign
++	$(TOPDIR)/scripts/mkits.sh \
++		-D $(DEVICE_NAME) \
++		-o $@.its \
++		-k $@ \
++		$(if $(word 2,$(1)),-d $(word 2,$(1))) -C $(word 1,$(1)) \
++		-a $(KERNEL_LOADADDR) \
++		-e $(if $(KERNEL_ENTRY),$(KERNEL_ENTRY),$(KERNEL_LOADADDR)) \
++		-c $(if $(DEVICE_DTS_CONFIG),$(DEVICE_DTS_CONFIG),"config-1") \
++		-A $(LINUX_KARCH) \
++		-v $(LINUX_VERSION) \
++		$(if $(FIT_KEY_NAME),-S $(FIT_KEY_NAME)) \
++		$(if $(FW_AR_VER),-r $(FW_AR_VER)) \
++		$(if $(CONFIG_TARGET_ROOTFS_SQUASHFS),-R $(ROOTFS/squashfs/$(DEVICE_NAME)))
++	PATH=$(LINUX_DIR)/scripts/dtc:$(PATH) mkimage \
++		-f $@.its \
++		$(if $(FIT_KEY_DIR),-k $(FIT_KEY_DIR)) \
++		-r \
++		$@.new
++	@mv $@.new $@
++endef
++
+ # default all platform image(fit) build 
+ define Device/Default
+   PROFILES = Default $$(DEVICE_NAME)
+@@ -29,6 +79,8 @@ define Device/Default
+   IMAGES := sysupgrade.bin
+   IMAGE/sysupgrade.bin := append-kernel | pad-to 128k | append-rootfs | \
+ 	pad-rootfs | append-metadata
++  FIT_KEY_DIR :=
++  FIT_KEY_NAME :=
+ endef
+ 
+ include $(SUBTARGET).mk

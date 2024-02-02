@@ -1,0 +1,133 @@
+From 6c341942f4c70345db030e578526c431baf05d5c Mon Sep 17 00:00:00 2001
+From: StanleyYP Wang <StanleyYP.Wang@mediatek.com>
+Date: Tue, 24 Oct 2023 15:59:18 +0800
+Subject: [PATCH 1030/1044] mtk: wifi: mt76: mt7996: add three wire pta support
+
+three wire enable bit 0 & 1 for EXT0 & EXT1, respectively
+
+Signed-off-by: StanleyYP Wang <StanleyYP.Wang@mediatek.com>
+---
+ mt76_connac_mcu.h |  1 +
+ mt7996/vendor.c   | 49 +++++++++++++++++++++++++++++++++++++++++++++++
+ mt7996/vendor.h   | 12 ++++++++++++
+ 3 files changed, 62 insertions(+)
+
+diff --git a/mt76_connac_mcu.h b/mt76_connac_mcu.h
+index 63c2ef10..06c8b960 100644
+--- a/mt76_connac_mcu.h
++++ b/mt76_connac_mcu.h
+@@ -1281,6 +1281,7 @@ enum {
+ 	MCU_UNI_CMD_PER_STA_INFO = 0x6d,
+ 	MCU_UNI_CMD_ALL_STA_INFO = 0x6e,
+ 	MCU_UNI_CMD_ASSERT_DUMP = 0x6f,
++	MCU_UNI_CMD_PTA_3WIRE_CTRL = 0x78,
+ };
+ 
+ enum {
+diff --git a/mt7996/vendor.c b/mt7996/vendor.c
+index dae3260a..9ba6f00a 100644
+--- a/mt7996/vendor.c
++++ b/mt7996/vendor.c
+@@ -60,6 +60,11 @@ edcca_dump_policy[NUM_MTK_VENDOR_ATTRS_EDCCA_DUMP] = {
+ 	[MTK_VENDOR_ATTR_EDCCA_DUMP_SEC160_VAL] = { .type = NLA_U8 },
+ };
+ 
++static const struct nla_policy
++three_wire_ctrl_policy[NUM_MTK_VENDOR_ATTRS_3WIRE_CTRL] = {
++	[MTK_VENDOR_ATTR_3WIRE_CTRL_MODE] = {.type = NLA_U8 },
++};
++
+ static const struct nla_policy
+ ibf_ctrl_policy[NUM_MTK_VENDOR_ATTRS_IBF_CTRL] = {
+ 	[MTK_VENDOR_ATTR_IBF_CTRL_ENABLE] = { .type = NLA_U8 },
+@@ -561,6 +566,39 @@ mt7996_vendor_edcca_ctrl_dump(struct wiphy *wiphy, struct wireless_dev *wdev,
+ 	return EDCCA_MAX_BW_NUM;
+ }
+ 
++static int mt7996_vendor_3wire_ctrl(struct wiphy *wiphy, struct wireless_dev *wdev,
++				    const void *data, int data_len)
++{
++#define UNI_3WIRE_EXT_EN	0
++	struct ieee80211_hw *hw = wiphy_to_ieee80211_hw(wiphy);
++	struct mt7996_dev *dev = mt7996_hw_dev(hw);
++	struct nlattr *tb[NUM_MTK_VENDOR_ATTRS_3WIRE_CTRL];
++	struct {
++		u8 __rsv1[4];
++
++		__le16 tag;
++		__le16 len;
++		u8 three_wire_mode;
++	} __packed req = {
++		.tag = cpu_to_le16(UNI_3WIRE_EXT_EN),
++		.len = cpu_to_le16(sizeof(req) - 4),
++	};
++	int err;
++
++	err = nla_parse(tb, MTK_VENDOR_ATTR_3WIRE_CTRL_MAX, data, data_len,
++			three_wire_ctrl_policy, NULL);
++	if (err)
++		return err;
++
++	if (!tb[MTK_VENDOR_ATTR_3WIRE_CTRL_MODE])
++		return -EINVAL;
++
++	req.three_wire_mode = nla_get_u8(tb[MTK_VENDOR_ATTR_3WIRE_CTRL_MODE]);
++
++	return mt76_mcu_send_msg(&dev->mt76, MCU_WM_UNI_CMD(PTA_3WIRE_CTRL), &req,
++				 sizeof(req), false);
++}
++
+ static int mt7996_vendor_ibf_ctrl(struct wiphy *wiphy,
+ 				  struct wireless_dev *wdev,
+ 				  const void *data,
+@@ -657,6 +695,17 @@ static const struct wiphy_vendor_command mt7996_vendor_commands[] = {
+ 		.policy = edcca_ctrl_policy,
+ 		.maxattr = MTK_VENDOR_ATTR_EDCCA_CTRL_MAX,
+ 	},
++	{
++		.info = {
++			.vendor_id = MTK_NL80211_VENDOR_ID,
++			.subcmd = MTK_NL80211_VENDOR_SUBCMD_3WIRE_CTRL,
++		},
++		.flags = WIPHY_VENDOR_CMD_NEED_NETDEV |
++			 WIPHY_VENDOR_CMD_NEED_RUNNING,
++		.doit = mt7996_vendor_3wire_ctrl,
++		.policy = three_wire_ctrl_policy,
++		.maxattr = MTK_VENDOR_ATTR_3WIRE_CTRL_MAX,
++	},
+ 	{
+ 		.info = {
+ 			.vendor_id = MTK_NL80211_VENDOR_ID,
+diff --git a/mt7996/vendor.h b/mt7996/vendor.h
+index 49f46f25..29ccc050 100644
+--- a/mt7996/vendor.h
++++ b/mt7996/vendor.h
+@@ -7,6 +7,7 @@ enum mtk_nl80211_vendor_subcmds {
+ 	MTK_NL80211_VENDOR_SUBCMD_AMNT_CTRL = 0xae,
+ 	MTK_NL80211_VENDOR_SUBCMD_MU_CTRL = 0xc5,
+ 	MTK_NL80211_VENDOR_SUBCMD_EDCCA_CTRL = 0xc7,
++	MTK_NL80211_VENDOR_SUBCMD_3WIRE_CTRL = 0xc8,
+ 	MTK_NL80211_VENDOR_SUBCMD_IBF_CTRL = 0xc9,
+ 	MTK_NL80211_VENDOR_SUBCMD_BSS_COLOR_CTRL = 0xca,
+ };
+@@ -43,6 +44,17 @@ enum mtk_vendor_attr_edcca_dump {
+ 		NUM_MTK_VENDOR_ATTRS_EDCCA_DUMP - 1
+ };
+ 
++enum mtk_vendor_attr_3wire_ctrl {
++	MTK_VENDOR_ATTR_3WIRE_CTRL_UNSPEC,
++
++	MTK_VENDOR_ATTR_3WIRE_CTRL_MODE,
++
++	/* keep last */
++	NUM_MTK_VENDOR_ATTRS_3WIRE_CTRL,
++	MTK_VENDOR_ATTR_3WIRE_CTRL_MAX =
++		NUM_MTK_VENDOR_ATTRS_3WIRE_CTRL - 1
++};
++
+ enum mtk_vendor_attr_mu_ctrl {
+ 	MTK_VENDOR_ATTR_MU_CTRL_UNSPEC,
+ 
+-- 
+2.18.0
+

@@ -1,0 +1,177 @@
+From f5e2909fcfb815fcc91530addcb7b36f052f5c15 Mon Sep 17 00:00:00 2001
+From: "sujuan.chen" <sujuan.chen@mediatek.com>
+Date: Wed, 13 Sep 2023 17:35:43 +0800
+Subject: [PATCH 2015/2028] mtk: wifi: mt76: mt7992: wed: add 2pcie one wed
+ support
+
+Signed-off-by: sujuan.chen <sujuan.chen@mediatek.com>
+---
+ mt7996/dma.c         | 13 +++++++++++--
+ mt7996/mmio.c        |  7 +++----
+ mt7996/mtk_debug.h   |  5 +++++
+ mt7996/mtk_debugfs.c | 25 ++++++++++++++++++-------
+ mt7996/regs.h        |  2 ++
+ 5 files changed, 39 insertions(+), 13 deletions(-)
+
+diff --git a/mt7996/dma.c b/mt7996/dma.c
+index 4c92f13b..80458b31 100644
+--- a/mt7996/dma.c
++++ b/mt7996/dma.c
+@@ -354,6 +354,13 @@ static void mt7996_dma_enable(struct mt7996_dev *dev, bool reset)
+ 			 MT_WFDMA_HOST_CONFIG_PDMA_BAND |
+ 			 MT_WFDMA_HOST_CONFIG_BAND2_PCIE1);
+ 
++		if (mtk_wed_device_active(&dev->mt76.mmio.wed) &&
++		    is_mt7992(&dev->mt76)) {
++			mt76_set(dev, MT_WFDMA_HOST_CONFIG,
++				 MT_WFDMA_HOST_CONFIG_PDMA_BAND |
++				 MT_WFDMA_HOST_CONFIG_BAND1_PCIE1);
++		}
++
+ 		/* AXI read outstanding number */
+ 		mt76_rmw(dev, MT_WFDMA_AXI_R2A_CTRL,
+ 			 MT_WFDMA_AXI_R2A_CTRL_OUTSTAND_MASK, 0x14);
+@@ -373,7 +380,8 @@ static void mt7996_dma_enable(struct mt7996_dev *dev, bool reset)
+ 		    dev->has_rro) {
+ 			u32 intr = is_mt7996(&dev->mt76) ?
+ 				   MT_WFDMA0_RX_INT_SEL_RING6 :
+-				   MT_WFDMA0_RX_INT_SEL_RING9;
++				   MT_WFDMA0_RX_INT_SEL_RING9 |
++				   MT_WFDMA0_RX_INT_SEL_RING5;
+ 			mt76_set(dev, MT_WFDMA0_RX_INT_PCIE_SEL + hif1_ofs,
+ 				 intr);
+ 		} else {
+@@ -629,10 +637,11 @@ int mt7996_dma_init(struct mt7996_dev *dev)
+ 					       MT_RXQ_ID(MT_RXQ_RRO_BAND1),
+ 					       MT7996_RX_RING_SIZE,
+ 					       MT7996_RX_BUF_SIZE,
+-					       MT_RXQ_RING_BASE(MT_RXQ_RRO_BAND1));
++					       MT_RXQ_RING_BASE(MT_RXQ_RRO_BAND1) + hif1_ofs);
+ 			if (ret)
+ 				return ret;
+ 		} else {
++			/* tx free notify event from WA for band0 */
+ 			dev->mt76.q_rx[MT_RXQ_TXFREE_BAND0].flags = MT_WED_Q_TXFREE;
+ 			dev->mt76.q_rx[MT_RXQ_TXFREE_BAND0].wed = wed;
+ 
+diff --git a/mt7996/mmio.c b/mt7996/mmio.c
+index b5b97dcb..8faceb3b 100644
+--- a/mt7996/mmio.c
++++ b/mt7996/mmio.c
+@@ -380,10 +380,10 @@ int mt7996_mmio_wed_init(struct mt7996_dev *dev, void *pdev_ptr,
+ 						    MT_RXQ_RING_BASE(MT7996_RXQ_RRO_BAND2) +
+ 						    MT7996_RXQ_RRO_BAND2 * MT_RING_SIZE;
+ 		} else {
+-			wed->wlan.wpdma_rx_rro[1] = wed->wlan.phy_base +
++			wed->wlan.wpdma_rx_rro[1] = wed->wlan.phy_base + hif1_ofs +
+ 						    MT_RXQ_RING_BASE(MT7996_RXQ_RRO_BAND1) +
+ 						    MT7996_RXQ_RRO_BAND1 * MT_RING_SIZE;
+-			wed->wlan.wpdma_rx[1] = wed->wlan.phy_base +
++			wed->wlan.wpdma_rx[1] = wed->wlan.phy_base + hif1_ofs +
+ 						MT_RXQ_RING_BASE(MT7996_RXQ_BAND1) +
+ 						MT7996_RXQ_BAND1 * MT_RING_SIZE;
+ 		}
+@@ -521,10 +521,9 @@ void mt7996_dual_hif_set_irq_mask(struct mt7996_dev *dev, bool write_reg,
+ 		if (mtk_wed_device_active(&mdev->mmio.wed)) {
+ 			mtk_wed_device_irq_set_mask(&mdev->mmio.wed,
+ 						    mdev->mmio.irqmask);
+-			if (mtk_wed_device_active(&mdev->mmio.wed_hif2)) {
++			if (mtk_wed_device_active(&mdev->mmio.wed_hif2))
+ 				mtk_wed_device_irq_set_mask(&mdev->mmio.wed_hif2,
+ 							    mdev->mmio.irqmask);
+-			}
+ 		} else {
+ 			mt76_wr(dev, MT_INT_MASK_CSR, mdev->mmio.irqmask);
+ 			mt76_wr(dev, MT_INT1_MASK_CSR, mdev->mmio.irqmask);
+diff --git a/mt7996/mtk_debug.h b/mt7996/mtk_debug.h
+index 27d8f1cb..da2a6072 100644
+--- a/mt7996/mtk_debug.h
++++ b/mt7996/mtk_debug.h
+@@ -561,6 +561,11 @@ struct queue_desc {
+ #define WF_WFDMA_HOST_DMA0_PCIE1_WPDMA_RX_RING7_CTRL1_ADDR     (WF_WFDMA_HOST_DMA0_PCIE1_BASE + 0x574) // 8574
+ #define WF_WFDMA_HOST_DMA0_PCIE1_WPDMA_RX_RING7_CTRL2_ADDR     (WF_WFDMA_HOST_DMA0_PCIE1_BASE + 0x578) // 8578
+ #define WF_WFDMA_HOST_DMA0_PCIE1_WPDMA_RX_RING7_CTRL3_ADDR     (WF_WFDMA_HOST_DMA0_PCIE1_BASE + 0x57c) // 857C
++#define WF_WFDMA_HOST_DMA0_PCIE1_WPDMA_RX_RING9_CTRL0_ADDR     (WF_WFDMA_HOST_DMA0_PCIE1_BASE + 0x590) // 8590
++#define WF_WFDMA_HOST_DMA0_PCIE1_WPDMA_RX_RING9_CTRL1_ADDR     (WF_WFDMA_HOST_DMA0_PCIE1_BASE + 0x594) // 8594
++#define WF_WFDMA_HOST_DMA0_PCIE1_WPDMA_RX_RING9_CTRL2_ADDR     (WF_WFDMA_HOST_DMA0_PCIE1_BASE + 0x598) // 8598
++#define WF_WFDMA_HOST_DMA0_PCIE1_WPDMA_RX_RING9_CTRL3_ADDR     (WF_WFDMA_HOST_DMA0_PCIE1_BASE + 0x59c) // 859C
++
+ //MCU DMA
+ //#define WF_WFDMA_MCU_DMA0_BASE                                 0x02000
+ #define WF_WFDMA_MCU_DMA0_BASE                                 0x54000000
+diff --git a/mt7996/mtk_debugfs.c b/mt7996/mtk_debugfs.c
+index 7fecdb74..42370205 100644
+--- a/mt7996/mtk_debugfs.c
++++ b/mt7996/mtk_debugfs.c
+@@ -536,14 +536,22 @@ mt7996_show_dma_info(struct seq_file *s, struct mt7996_dev *dev)
+ 		WF_WFDMA_HOST_DMA0_WPDMA_RX_RING4_CTRL0_ADDR);
+ 	dump_dma_rx_ring_info(s, dev, "R5:Data1(MAC2H)", "Both",
+ 		WF_WFDMA_HOST_DMA0_WPDMA_RX_RING5_CTRL0_ADDR);
+-	dump_dma_rx_ring_info(s, dev, "R6:BUF1(MAC2H)", "Both",
+-		WF_WFDMA_HOST_DMA0_WPDMA_RX_RING6_CTRL0_ADDR);
++	if (is_mt7996(&dev->mt76))
++		dump_dma_rx_ring_info(s, dev, "R6:BUF1(MAC2H)", "Both",
++			WF_WFDMA_HOST_DMA0_WPDMA_RX_RING6_CTRL0_ADDR);
++	else
++		dump_dma_rx_ring_info(s, dev, "R6:TxDone0(MAC2H)", "Both",
++			WF_WFDMA_HOST_DMA0_WPDMA_RX_RING6_CTRL0_ADDR);
+ 	dump_dma_rx_ring_info(s, dev, "R7:TxDone1(MAC2H)", "Both",
+ 		WF_WFDMA_HOST_DMA0_WPDMA_RX_RING7_CTRL0_ADDR);
+ 	dump_dma_rx_ring_info(s, dev, "R8:BUF0(MAC2H)", "Both",
+ 		WF_WFDMA_HOST_DMA0_WPDMA_RX_RING8_CTRL0_ADDR);
+-	dump_dma_rx_ring_info(s, dev, "R9:TxDone0(MAC2H)", "Both",
+-		WF_WFDMA_HOST_DMA0_WPDMA_RX_RING9_CTRL0_ADDR);
++	if (is_mt7996(&dev->mt76))
++		dump_dma_rx_ring_info(s, dev, "R9:TxDone0(MAC2H)", "Both",
++			WF_WFDMA_HOST_DMA0_WPDMA_RX_RING9_CTRL0_ADDR);
++	else
++		dump_dma_rx_ring_info(s, dev, "R9:BUF0(MAC2H)", "Both",
++			WF_WFDMA_HOST_DMA0_WPDMA_RX_RING9_CTRL0_ADDR);
+ 	dump_dma_rx_ring_info(s, dev, "R10:MSDU_PG0(MAC2H)", "Both",
+ 		WF_WFDMA_HOST_DMA0_WPDMA_RX_RING10_CTRL0_ADDR);
+ 	dump_dma_rx_ring_info(s, dev, "R11:MSDU_PG1(MAC2H)", "Both",
+@@ -561,15 +569,18 @@ mt7996_show_dma_info(struct seq_file *s, struct mt7996_dev *dev)
+ 			WF_WFDMA_HOST_DMA0_PCIE1_WPDMA_TX_RING21_CTRL0_ADDR);
+ 		dump_dma_tx_ring_info(s, dev, "T22:TXD?(H2WA)", "AP",
+ 			WF_WFDMA_HOST_DMA0_PCIE1_WPDMA_TX_RING22_CTRL0_ADDR);
+-
+ 		dump_dma_rx_ring_info(s, dev, "R3:TxDone1(WA2H)", "AP",
+ 			WF_WFDMA_HOST_DMA0_PCIE1_WPDMA_RX_RING3_CTRL0_ADDR);
+ 		dump_dma_rx_ring_info(s, dev, "R5:Data1(MAC2H)", "Both",
+ 			WF_WFDMA_HOST_DMA0_PCIE1_WPDMA_RX_RING5_CTRL0_ADDR);
+-		dump_dma_rx_ring_info(s, dev, "R6:BUF1(MAC2H)", "Both",
+-			WF_WFDMA_HOST_DMA0_PCIE1_WPDMA_RX_RING6_CTRL0_ADDR);
++		if (is_mt7996(&dev->mt76))
++			dump_dma_rx_ring_info(s, dev, "R6:BUF1(MAC2H)", "Both",
++				WF_WFDMA_HOST_DMA0_PCIE1_WPDMA_RX_RING6_CTRL0_ADDR);
+ 		dump_dma_rx_ring_info(s, dev, "R7:TxDone1(MAC2H)", "Both",
+ 			WF_WFDMA_HOST_DMA0_PCIE1_WPDMA_RX_RING7_CTRL0_ADDR);
++		if (is_mt7992(&dev->mt76))
++			dump_dma_rx_ring_info(s, dev, "R9:BUF1(MAC2H)", "Both",
++				WF_WFDMA_HOST_DMA0_PCIE1_WPDMA_RX_RING9_CTRL0_ADDR);
+ 	}
+ 
+ 	/* MCU DMA information */
+diff --git a/mt7996/regs.h b/mt7996/regs.h
+index 352d1b29..a3b62339 100644
+--- a/mt7996/regs.h
++++ b/mt7996/regs.h
+@@ -411,6 +411,7 @@ enum offs_rev {
+ 
+ #define MT_WFDMA0_RX_INT_PCIE_SEL		MT_WFDMA0(0x154)
+ #define MT_WFDMA0_RX_INT_SEL_RING3		BIT(3)
++#define MT_WFDMA0_RX_INT_SEL_RING5		BIT(5)
+ #define MT_WFDMA0_RX_INT_SEL_RING6		BIT(6)
+ #define MT_WFDMA0_RX_INT_SEL_RING9		BIT(9)
+ 
+@@ -451,6 +452,7 @@ enum offs_rev {
+ 
+ #define MT_WFDMA_HOST_CONFIG			MT_WFDMA_EXT_CSR(0x30)
+ #define MT_WFDMA_HOST_CONFIG_PDMA_BAND		BIT(0)
++#define MT_WFDMA_HOST_CONFIG_BAND1_PCIE1	BIT(21)
+ #define MT_WFDMA_HOST_CONFIG_BAND2_PCIE1	BIT(22)
+ 
+ #define MT_WFDMA_EXT_CSR_HIF_MISC		MT_WFDMA_EXT_CSR(0x44)
+-- 
+2.18.0
+

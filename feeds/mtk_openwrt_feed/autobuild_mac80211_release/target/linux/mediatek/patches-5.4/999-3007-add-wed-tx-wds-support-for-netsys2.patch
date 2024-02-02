@@ -1,0 +1,80 @@
+From 396ce749479219467ea3f1123d5e9a303e5051ec Mon Sep 17 00:00:00 2001
+From: Sujuan Chen <sujuan.chen@mediatek.com>
+Date: Mon, 18 Sep 2023 11:03:33 +0800
+Subject: [PATCH 08/22] add-wed-tx-wds-support-for-mt7986
+
+---
+ drivers/net/ethernet/mediatek/mtk_wed.c      | 8 +++++++-
+ drivers/net/ethernet/mediatek/mtk_wed_regs.h | 1 +
+ include/linux/soc/mediatek/mtk_wed.h         | 3 +++
+ 3 files changed, 11 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/net/ethernet/mediatek/mtk_wed.c b/drivers/net/ethernet/mediatek/mtk_wed.c
+index 0588e32..23e3dc5 100644
+--- a/drivers/net/ethernet/mediatek/mtk_wed.c
++++ b/drivers/net/ethernet/mediatek/mtk_wed.c
+@@ -797,7 +797,7 @@ mtk_wed_start(struct mtk_wed_device *dev, u32 irq_mask)
+ 		val |= BIT(0);
+ 		regmap_write(dev->hw->mirror, dev->hw->index * 4, val);
+ 	} else {
+-		mtk_wed_set_512_support(dev, true);
++		mtk_wed_set_512_support(dev, dev->wlan.wcid_512);
+ 	}
+ 
+ 	mtk_wed_dma_enable(dev);
+@@ -809,6 +809,7 @@ mtk_wed_attach(struct mtk_wed_device *dev)
+ 	__releases(RCU)
+ {
+ 	struct mtk_wed_hw *hw;
++	u16 ver;
+ 	int ret = 0;
+ 
+ 	RCU_LOCKDEP_WARN(!rcu_read_lock_held(),
+@@ -839,6 +840,11 @@ mtk_wed_attach(struct mtk_wed_device *dev)
+ 
+ 	dev->ver = FIELD_GET(MTK_WED_REV_ID_MAJOR,
+ 			    wed_r32(dev, MTK_WED_REV_ID));
++	if (dev->ver > MTK_WED_V1)
++		ver = FIELD_GET(MTK_WED_REV_ID_MINOR,
++			    wed_r32(dev, MTK_WED_REV_ID));
++
++	dev->rev_id = ((dev->ver << 28) | ver << 16);
+ 
+ 	ret = mtk_wed_buffer_alloc(dev);
+ 	if (ret) {
+diff --git a/drivers/net/ethernet/mediatek/mtk_wed_regs.h b/drivers/net/ethernet/mediatek/mtk_wed_regs.h
+index a9b9e2a..14e0e21 100644
+--- a/drivers/net/ethernet/mediatek/mtk_wed_regs.h
++++ b/drivers/net/ethernet/mediatek/mtk_wed_regs.h
+@@ -31,6 +31,7 @@ struct mtk_wdma_desc {
+ #define MTK_WED_REV_ID					0x000
+ #define MTK_WED_REV_ID_MAJOR				GENMASK(7, 0)
+ #endif
++#define MTK_WED_REV_ID_MINOR				GENMASK(27, 16)
+ 
+ #define MTK_WED_RESET					0x008
+ #define MTK_WED_RESET_TX_BM				BIT(0)
+diff --git a/include/linux/soc/mediatek/mtk_wed.h b/include/linux/soc/mediatek/mtk_wed.h
+index ffd547a..e914cb4 100644
+--- a/include/linux/soc/mediatek/mtk_wed.h
++++ b/include/linux/soc/mediatek/mtk_wed.h
+@@ -42,6 +42,7 @@ struct mtk_wed_device {
+ 	int wdma_idx;
+ 	int irq;
+ 	u8 ver;
++	u32 rev_id;
+ 
+ 	struct mtk_wed_ring tx_ring[MTK_WED_TX_QUEUES];
+ 	struct mtk_wed_ring txfree_ring;
+@@ -72,6 +73,8 @@ struct mtk_wed_device {
+ 		u16 token_start;
+ 		unsigned int nbuf;
+ 
++		bool wcid_512;
++
+ 		u32 (*init_buf)(void *ptr, dma_addr_t phys, int token_id);
+ 		int (*offload_enable)(struct mtk_wed_device *wed);
+ 		void (*offload_disable)(struct mtk_wed_device *wed);
+-- 
+2.18.0
+

@@ -1,0 +1,100 @@
+diff --git a/include/image.mk b/include/image.mk
+index 92d343c..f93fb01 100644
+--- a/include/image.mk
++++ b/include/image.mk
+@@ -440,6 +440,8 @@ else
+   DEVICE_CHECK_PROFILE = $(CONFIG_TARGET_$(if $(CONFIG_TARGET_MULTI_PROFILE),DEVICE_)$(call target_conf,$(BOARD)$(if $(SUBTARGET),_$(SUBTARGET)))_$(1))
+ endif
+ 
++ROOTFS_ENCRYPT = $(if $(ROE_KEY_DIR),$(wildcard $(ROE_KEY_DIR)/$(ROE_KEY_NAME).key),)
++
+ DEVICE_CHECK_FIT_KEY = $(if $(wildcard $(FIT_KEY_DIR)/$(FIT_KEY_NAME).key),install-images,install-disabled)
+ DEVICE_CHECK_FIT_DIR = $(if $(FIT_KEY_DIR),$(DEVICE_CHECK_FIT_KEY),install-images)
+ 
+diff --git a/target/linux/mediatek/image/Makefile b/target/linux/mediatek/image/Makefile
+index 20e5977..52c266e 100644
+--- a/target/linux/mediatek/image/Makefile
++++ b/target/linux/mediatek/image/Makefile
+@@ -16,6 +16,14 @@ define Build/sysupgrade-emmc
+ 		$(IMAGE_ROOTFS)
+ endef
+ 
++define Build/fdt-patch-dm-crypt
++	BIN=$(STAGING_DIR_HOST)/bin \
++	LIBFDT_PATH=$(STAGING_DIR_HOST)/lib \
++	$(TOPDIR)/scripts/fdt-patch-dm-crypt.sh \
++		$(KDIR)/image-sb-$(firstword $(DEVICE_DTS)).dtb \
++		$(ROOTFS/$(FILESYSTEMS)/$(DEVICE_NAME))-hashed-summary-$(firstword $(DEVICE_DTS))
++endef
++
+ # build squashfs-hashed
+ define Build/squashfs-hashed
+ 	$(CP) $(ROOTFS/$(FILESYSTEMS)/$(DEVICE_NAME)) $(ROOTFS/$(FILESYSTEMS)/$(DEVICE_NAME))-hashed-$(firstword $(DEVICE_DTS))
+@@ -27,6 +35,7 @@ define Build/squashfs-hashed
+ 	fdt-patch-dm-verify $(ROOTFS/$(FILESYSTEMS)/$(DEVICE_NAME))-hashed-summary-$(firstword $(DEVICE_DTS)) \
+ 		$(KDIR)/image-$(firstword $(DEVICE_DTS)).dtb $(KDIR)/image-sb-$(firstword $(DEVICE_DTS)).dtb \
+ 		$(HASHED_BOOT_DEVICE)
++	$(if $(ROOTFS_ENCRYPT),$(call Build/fdt-patch-dm-crypt))
+ endef
+ 
+ # build fw-ar-ver
+@@ -40,6 +49,30 @@ define Build/fw-ar-ver
+ 	$(call get_fw_ar_ver,$(ANTI_ROLLBACK_TABLE),$(AUTO_AR_CONF))
+ endef
+ 
++define Build/rfsk-encrypt
++	BIN=$(STAGING_DIR_HOST)/bin \
++	$(TOPDIR)/scripts/enc-rfsk.sh \
++		-d $(ROE_KEY_DIR) \
++		-f $@ \
++		-k $(ROE_KEY_DIR)/$(ROE_KEY_NAME) \
++		-s $(dir $@)
++endef
++
++define Build/fit-secret
++	BIN=$(STAGING_DIR_HOST)/bin \
++	LIBFDT_PATH=$(STAGING_DIR_HOST)/lib \
++	$(TOPDIR)/scripts/enc-rfsk.sh \
++		-c "config-1" \
++		-d $(ROE_KEY_DIR) \
++		-f $@ \
++		-k $(ROE_KEY_DIR)/$(ROE_KEY_NAME) \
++		-s $(dir $@)
++endef
++
++define Build/rootfs-encrypt
++	$(if $(ROOTFS_ENCRYPT),$(call Build/rfsk-encrypt))
++endef
++
+ # build signed fit
+ define Build/fit-sign
+ 	$(TOPDIR)/scripts/mkits.sh \
+@@ -54,13 +87,18 @@ define Build/fit-sign
+ 		-v $(LINUX_VERSION) \
+ 		$(if $(FIT_KEY_NAME),-S $(FIT_KEY_NAME)) \
+ 		$(if $(FW_AR_VER),-r $(FW_AR_VER)) \
+-		$(if $(CONFIG_TARGET_ROOTFS_SQUASHFS),-R $(ROOTFS/squashfs/$(DEVICE_NAME)))
++		$(if $(CONFIG_TARGET_ROOTFS_SQUASHFS), \
++			$(if $(ROOTFS_ENCRYPT), \
++				-R $(ROOTFS/$(FILESYSTEMS)/$(DEVICE_NAME))-hashed-$(firstword $(DEVICE_DTS)), \
++				-R $(ROOTFS/$(FILESYSTEMS)/$(DEVICE_NAME)))) \
++		$(if $(ROOTFS_ENCRYPT),-m $(addsuffix -rfsk.enc,$(basename $@)))
+ 	PATH=$(LINUX_DIR)/scripts/dtc:$(PATH) mkimage \
+ 		-f $@.its \
+ 		$(if $(FIT_KEY_DIR),-k $(FIT_KEY_DIR)) \
+ 		-r \
+ 		$@.new
+ 	@mv $@.new $@
++	$(if $(ROOTFS_ENCRYPT),$(call Build/fit-secret))
+ endef
+ 
+ # default all platform image(fit) build 
+@@ -78,6 +116,8 @@ define Device/Default
+ 	pad-rootfs | append-metadata
+   FIT_KEY_DIR :=
+   FIT_KEY_NAME :=
++  ROE_KEY_DIR :=
++  ROE_KEY_NAME :=
+ endef
+ 
+ include $(SUBTARGET).mk

@@ -1,0 +1,61 @@
+From d61b4ecbf109c7f702cafc0307db6b35e92c46b4 Mon Sep 17 00:00:00 2001
+From: Daniel Golle <daniel@makrotopia.org>
+Date: Thu, 28 Sep 2023 19:13:23 +0100
+Subject: [PATCH 2/2] kernel: modules: package MT7986 audio drivers
+
+Packages the audio drivers for the MediaTek MT7986 SoC used with
+Wolfson WM8960 codec.
+
+Signed-off-by: Daniel Golle <daniel@makrotopia.org>
+---
+ package/kernel/linux/modules/sound.mk | 34 +++++++++++++++++++++++++++
+ 1 file changed, 34 insertions(+)
+
+diff --git a/package/kernel/linux/modules/sound.mk b/package/kernel/linux/modules/sound.mk
+index 62a31bfb11..623f65ac59 100644
+--- a/package/kernel/linux/modules/sound.mk
++++ b/package/kernel/linux/modules/sound.mk
+@@ -236,6 +236,40 @@ endef
+ $(eval $(call KernelPackage,sound-soc-imx))
+ 
+ 
++define KernelPackage/sound-soc-mt7986
++  TITLE:=MediaTek MT7986 Audio support
++  KCONFIG:=CONFIG_SND_SOC_MT7986 CONFIG_SND_SOC_MT7986_WM8960
++  FILES:= \
++	$(LINUX_DIR)/sound/soc/mediatek/common/snd-soc-mtk-common.ko \
++	$(LINUX_DIR)/sound/soc/mediatek/mt7986/snd-soc-mt7986-afe.ko
++  AUTOLOAD:=$(call AutoLoad,56,snd-soc-mtk-common snd-soc-mt7986-afe)
++  DEPENDS:=+kmod-sound-soc-core
++  $(call AddDepends/sound)
++endef
++
++define KernelPackage/sound-soc-mt7986/description
++ Support for audio on systems using the MediaTek MT7986 SoC.
++endef
++
++$(eval $(call KernelPackage,sound-soc-mt7986))
++
++
++define KernelPackage/sound-soc-mt7986-wm8960
++  TITLE:=MediaTek MT7986 Audio support
++  KCONFIG:=CONFIG_SND_SOC_MT7986_WM8960
++  FILES:=$(LINUX_DIR)/sound/soc/mediatek/mt7986/mt7986-wm8960.ko
++  AUTOLOAD:=$(call AutoLoad,57,mt7986-wm8960)
++  DEPENDS:=+kmod-sound-soc-wm8960 +kmod-sound-soc-mt7986
++  $(call AddDepends/sound)
++endef
++
++define KernelPackage/sound-soc-mt7986-wm8960/description
++ Support for use of the Wolfson Audio WM8960 codec with the MediaTek MT7986 SoC.
++endef
++
++$(eval $(call KernelPackage,sound-soc-mt7986-wm8960))
++
++
+ define KernelPackage/sound-soc-imx-sgtl5000
+   TITLE:=IMX SoC support for SGTL5000
+   KCONFIG:=CONFIG_SND_SOC_IMX_SGTL5000
+-- 
+2.18.0
+

@@ -1,0 +1,28 @@
+From 8a15deedea82333fc2b0a4aeeffed6364ebb1edd Mon Sep 17 00:00:00 2001
+From: ye he <ye.he@mediatek.com>
+Date: Wed, 22 Feb 2023 16:09:32 +0800
+Subject: [PATCH 25/37] mtk: mac80211: add send bar action when recieve addba
+ rsp
+
+Signed-off-by: ye he <ye.he@mediatek.com>
+---
+ net/mac80211/agg-tx.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/net/mac80211/agg-tx.c b/net/mac80211/agg-tx.c
+index b8b8e22..285433a 100644
+--- a/net/mac80211/agg-tx.c
++++ b/net/mac80211/agg-tx.c
+@@ -1098,7 +1098,8 @@ next:
+ 
+ 		tid_tx->buf_size = buf_size;
+ 		tid_tx->amsdu = amsdu;
+-
++		ieee80211_send_bar(&sta->sdata->vif, sta->sta.addr,
++					   tid, 0);
+ 		if (test_bit(HT_AGG_STATE_DRV_READY, &tid_tx->state))
+ 			ieee80211_agg_tx_operational(local, sta, tid);
+ 
+-- 
+2.18.0
+

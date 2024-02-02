@@ -1,0 +1,111 @@
+From db3119c60343e526a18e668a3b600c9c5feaa825 Mon Sep 17 00:00:00 2001
+From: StanleyYP Wang <StanleyYP.Wang@mediatek.com>
+Date: Thu, 20 Jul 2023 17:27:22 +0800
+Subject: [PATCH 16/25] mtk: wifi: mt76: mt7996: add eagle default bin of
+ different sku variants
+
+Signed-off-by: StanleyYP Wang <StanleyYP.Wang@mediatek.com>
+---
+ mt7996/eeprom.c |  2 ++
+ mt7996/init.c   |  4 ++++
+ mt7996/mt7996.h | 28 ++++++++++++++++++++++++++--
+ 3 files changed, 32 insertions(+), 2 deletions(-)
+
+diff --git a/mt7996/eeprom.c b/mt7996/eeprom.c
+index 4a823711..7505a8b7 100644
+--- a/mt7996/eeprom.c
++++ b/mt7996/eeprom.c
+@@ -26,6 +26,8 @@ static char *mt7996_eeprom_name(struct mt7996_dev *dev)
+ {
+ 	switch (mt76_chip(&dev->mt76)) {
+ 	case 0x7990:
++		if (dev->chip_sku == MT7996_SKU_404)
++			return MT7996_EEPROM_DEFAULT_404;
+ 		return MT7996_EEPROM_DEFAULT;
+ 	case 0x7992:
+ 		return MT7992_EEPROM_DEFAULT;
+diff --git a/mt7996/init.c b/mt7996/init.c
+index 1c464e2f..1b8a1bf6 100644
+--- a/mt7996/init.c
++++ b/mt7996/init.c
+@@ -897,6 +897,10 @@ static int mt7996_init_hardware(struct mt7996_dev *dev)
+ 	INIT_LIST_HEAD(&dev->wed_rro.poll_list);
+ 	spin_lock_init(&dev->wed_rro.lock);
+ 
++	ret = mt7996_get_chip_sku(dev);
++	if (ret)
++		return ret;
++
+ 	ret = mt7996_dma_init(dev);
+ 	if (ret)
+ 		return ret;
+diff --git a/mt7996/mt7996.h b/mt7996/mt7996.h
+index 8154ad37..eab96139 100644
+--- a/mt7996/mt7996.h
++++ b/mt7996/mt7996.h
+@@ -40,6 +40,7 @@
+ #define MT7992_ROM_PATCH		"mediatek/mt7996/mt7992_rom_patch.bin"
+ 
+ #define MT7996_EEPROM_DEFAULT		"mediatek/mt7996/mt7996_eeprom.bin"
++#define MT7996_EEPROM_DEFAULT_404	"mediatek/mt7996/mt7996_eeprom_dual_404.bin"
+ #define MT7992_EEPROM_DEFAULT		"mediatek/mt7996/mt7992_eeprom.bin"
+ #define MT7996_EEPROM_SIZE		7680
+ #define MT7996_EEPROM_BLOCK_SIZE	16
+@@ -88,6 +89,11 @@ struct mt7996_sta;
+ struct mt7996_dfs_pulse;
+ struct mt7996_dfs_pattern;
+ 
++enum mt7996_sku_type {
++	MT7996_SKU_404,
++	MT7996_SKU_444,
++};
++
+ enum mt7996_ram_type {
+ 	MT7996_RAM_TYPE_WM,
+ 	MT7996_RAM_TYPE_WA,
+@@ -257,6 +263,8 @@ struct mt7996_dev {
+ 	struct cfg80211_chan_def rdd2_chandef;
+ 	struct mt7996_phy *rdd2_phy;
+ 
++	u8 chip_sku;
++
+ 	u16 chainmask;
+ 	u8 chainshift[__MT_MAX_BAND];
+ 	u32 hif_idx;
+@@ -399,6 +407,23 @@ mt7996_phy3(struct mt7996_dev *dev)
+ 	return __mt7996_phy(dev, MT_BAND2);
+ }
+ 
++static inline int
++mt7996_get_chip_sku(struct mt7996_dev *dev)
++{
++	u32 val = mt76_rr(dev, MT_PAD_GPIO);
++
++	/* reserve for future variants */
++	switch (mt76_chip(&dev->mt76)) {
++	case 0x7990:
++		dev->chip_sku = FIELD_GET(MT_PAD_GPIO_ADIE_COMB, val) <= 1;
++		break;
++	default:
++		return -EINVAL;
++	}
++
++	return 0;
++}
++
+ static inline bool
+ mt7996_band_valid(struct mt7996_dev *dev, u8 band)
+ {
+@@ -406,8 +431,7 @@ mt7996_band_valid(struct mt7996_dev *dev, u8 band)
+ 		return band <= MT_BAND1;
+ 
+ 	/* tri-band support */
+-	if (band <= MT_BAND2 &&
+-	    mt76_get_field(dev, MT_PAD_GPIO, MT_PAD_GPIO_ADIE_COMB) <= 1)
++	if (band <= MT_BAND2 && dev->chip_sku)
+ 		return true;
+ 
+ 	return band == MT_BAND0 || band == MT_BAND2;
+-- 
+2.18.0
+

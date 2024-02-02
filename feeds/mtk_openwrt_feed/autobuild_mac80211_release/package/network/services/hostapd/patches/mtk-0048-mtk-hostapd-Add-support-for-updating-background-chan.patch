@@ -1,0 +1,339 @@
+From 8590ccd17827862e02b9f40ccca29a03dc3e0ab6 Mon Sep 17 00:00:00 2001
+From: StanleyYP Wang <StanleyYP.Wang@mediatek.com>
+Date: Wed, 5 Jul 2023 10:25:01 +0800
+Subject: [PATCH 48/54] mtk: hostapd: Add support for updating background
+ channel by driver
+
+Signed-off-by: StanleyYP Wang <StanleyYP.Wang@mediatek.com>
+---
+ src/ap/dfs.c                       | 107 ++++++++++++++++++++++++++++-
+ src/ap/dfs.h                       |   3 +
+ src/ap/drv_callbacks.c             |  22 ++++++
+ src/ap/hostapd.h                   |   5 ++
+ src/drivers/driver.h               |  12 ++++
+ src/drivers/driver_nl80211_event.c |   6 ++
+ src/drivers/nl80211_copy.h         |   6 ++
+ 7 files changed, 160 insertions(+), 1 deletion(-)
+
+diff --git a/src/ap/dfs.c b/src/ap/dfs.c
+index 95119a391..008596bb2 100644
+--- a/src/ap/dfs.c
++++ b/src/ap/dfs.c
+@@ -814,11 +814,14 @@ static int dfs_are_channels_overlapped(struct hostapd_iface *iface, int freq,
+ 
+ static void dfs_check_background_overlapped(struct hostapd_iface *iface)
+ {
+-	int width = hostapd_get_oper_chwidth(iface->conf);
++	int width = iface->radar_background.new_chwidth;
+ 
+ 	if (!dfs_use_radar_background(iface))
+ 		return;
+ 
++	if (!width)
++		width = hostapd_get_oper_chwidth(iface->conf);
++
+ 	if (dfs_are_channels_overlapped(iface, iface->radar_background.freq,
+ 					width, iface->radar_background.centr_freq_seg0_idx,
+ 					iface->radar_background.centr_freq_seg1_idx))
+@@ -983,6 +986,15 @@ int hostapd_handle_dfs(struct hostapd_iface *iface)
+ 		iface->radar_background.temp_ch = 1;
+ 		return 1;
+ 	} else if (dfs_use_radar_background(iface)) {
++		/*
++		 * AP is going to perform CAC, so reset temp_ch to 0,
++		 * when dedicated rx has already started CAC.
++		 */
++		if (iface->radar_background.cac_started) {
++			iface->radar_background.temp_ch = 0;
++			return 0;
++		}
++
+ 		if (iface->dfs_domain == HOSTAPD_DFS_REGION_ETSI)
+ 			channel_type = DFS_ANY_CHANNEL;
+ 
+@@ -1116,6 +1128,8 @@ static int hostapd_dfs_request_channel_switch(struct hostapd_iface *iface,
+ 	 * ch_switch_notify event is received */
+ 	wpa_printf(MSG_DEBUG, "DFS waiting channel switch event");
+ 
++	hostapd_set_oper_chwidth(iface->conf, new_vht_oper_chwidth);
++
+ 	return 0;
+ }
+ 
+@@ -1167,6 +1181,9 @@ static void hostpad_dfs_update_background_chain(struct hostapd_iface *iface)
+ 	iface->radar_background.secondary_channel = sec;
+ 	iface->radar_background.centr_freq_seg0_idx = oper_centr_freq_seg0_idx;
+ 	iface->radar_background.centr_freq_seg1_idx = oper_centr_freq_seg1_idx;
++	/* if main channel do not require dfs, then set temp_ch = 1 */
++	if (!hostapd_is_dfs_required(iface))
++		iface->radar_background.temp_ch = 1;
+ 
+ 	wpa_printf(MSG_DEBUG,
+ 		   "%s: setting background chain to chan %d (%d MHz)",
+@@ -1189,6 +1206,10 @@ hostapd_dfs_start_channel_switch_background(struct hostapd_iface *iface)
+ 	u8 current_vht_oper_chwidth = hostapd_get_oper_chwidth(iface->conf);
+ 	int ret;
+ 
++	if (iface->radar_background.new_chwidth) {
++		hostapd_set_oper_chwidth(iface->conf, iface->radar_background.new_chwidth);
++		iface->radar_background.new_chwidth = 0;
++	}
+ 	ret = hostapd_dfs_request_channel_switch(iface, iface->radar_background.channel,
+ 						 iface->radar_background.freq,
+ 						 iface->radar_background.secondary_channel,
+@@ -1211,6 +1232,52 @@ hostapd_dfs_start_channel_switch_background(struct hostapd_iface *iface)
+ }
+ 
+ 
++static void
++hostapd_dfs_background_expand(struct hostapd_iface *iface, int chan_width)
++{
++	struct hostapd_hw_modes *mode = iface->current_mode;
++	struct hostapd_channel_data *chan;
++	int i, channel, width = channel_width_to_int(chan_width);
++
++	if (iface->conf->channel - iface->radar_background.channel == width / 5)
++		channel = iface->radar_background.channel;
++	else if (iface->radar_background.channel - iface->conf->channel == width / 5)
++		channel = iface->conf->channel;
++	else
++		return;
++
++	for (i = 0; i < mode->num_channels; i++) {
++		chan = &mode->channels[i];
++		if (chan->chan == channel)
++			break;
++	}
++
++	if (i == mode->num_channels || !dfs_is_chan_allowed(chan, width / 10))
++		return;
++
++	switch (chan_width) {
++	case CHAN_WIDTH_20_NOHT:
++	case CHAN_WIDTH_20:
++		iface->radar_background.new_chwidth = CONF_OPER_CHWIDTH_USE_HT;
++		break;
++	case CHAN_WIDTH_40:
++		iface->radar_background.new_chwidth = CONF_OPER_CHWIDTH_80MHZ;
++		break;
++	case CHAN_WIDTH_80:
++		iface->radar_background.new_chwidth = CONF_OPER_CHWIDTH_160MHZ;
++		break;
++	default:
++		return;
++	}
++
++	iface->radar_background.freq = channel * 5 + 5000;
++	iface->radar_background.channel = channel;
++	iface->radar_background.centr_freq_seg0_idx = channel + width / 5 - 2;
++	iface->radar_background.secondary_channel = 1;
++	iface->radar_background.expand_ch = 0;
++}
++
++
+ int hostapd_dfs_complete_cac(struct hostapd_iface *iface, int success, int freq,
+ 			     int ht_enabled, int chan_offset, int chan_width,
+ 			     int cf1, int cf2)
+@@ -1244,6 +1311,10 @@ int hostapd_dfs_complete_cac(struct hostapd_iface *iface, int success, int freq,
+ 					return 0;
+ 
+ 				iface->radar_background.temp_ch = 0;
++
++				if (iface->radar_background.expand_ch)
++					hostapd_dfs_background_expand(iface, chan_width);
++
+ 				return hostapd_dfs_start_channel_switch_background(iface);
+ 			}
+ 
+@@ -1274,6 +1345,8 @@ int hostapd_dfs_complete_cac(struct hostapd_iface *iface, int success, int freq,
+ 		}
+ 	} else if (hostapd_dfs_is_background_event(iface, freq)) {
+ 		iface->radar_background.cac_started = 0;
++		iface->radar_background.temp_ch = 0;
++		iface->radar_background.expand_ch = 0;
+ 		hostpad_dfs_update_background_chain(iface);
+ 	}
+ 
+@@ -1406,6 +1479,9 @@ hostapd_dfs_background_start_channel_switch(struct hostapd_iface *iface,
+ 	    iface->conf->dfs_detect_mode == DFS_DETECT_MODE_ALL_ENABLE)
+ 		return 0;
+ 
++	iface->radar_background.temp_ch = 0;
++	iface->radar_background.expand_ch = 0;
++
+ 	/* Check if CSA in progress */
+ 	if (hostapd_csa_in_progress(iface))
+ 		return 0;
+@@ -1640,6 +1716,35 @@ int hostapd_is_dfs_required(struct hostapd_iface *iface)
+ }
+ 
+ 
++int hostapd_dfs_background_chan_update(struct hostapd_iface *iface, int freq,
++				       int ht_enabled, int chan_offset, int chan_width,
++				       int cf1, int cf2, bool expand)
++{
++	switch (chan_width) {
++	case CHAN_WIDTH_80:
++		iface->radar_background.new_chwidth = CONF_OPER_CHWIDTH_80MHZ;
++		break;
++	case CHAN_WIDTH_160:
++		iface->radar_background.new_chwidth = CONF_OPER_CHWIDTH_160MHZ;
++		break;
++	default:
++		iface->radar_background.new_chwidth = CONF_OPER_CHWIDTH_USE_HT;
++		break;
++	};
++
++	iface->radar_background.freq = freq;
++	iface->radar_background.channel = (freq - 5000) / 5;
++	iface->radar_background.centr_freq_seg0_idx = (cf1 - 5000) / 5;
++	iface->radar_background.centr_freq_seg1_idx = cf2 ? (cf2 - 5000) / 5 : 0;
++	if (expand) {
++		iface->radar_background.temp_ch = 1;
++		iface->radar_background.expand_ch = 1;
++	}
++
++	return 0;
++}
++
++
+ int hostapd_dfs_start_cac(struct hostapd_iface *iface, int freq,
+ 			  int ht_enabled, int chan_offset, int chan_width,
+ 			  int cf1, int cf2)
+diff --git a/src/ap/dfs.h b/src/ap/dfs.h
+index 25ba29ca1..a1a2be5ec 100644
+--- a/src/ap/dfs.h
++++ b/src/ap/dfs.h
+@@ -30,6 +30,9 @@ int hostapd_dfs_radar_detected(struct hostapd_iface *iface, int freq,
+ int hostapd_dfs_nop_finished(struct hostapd_iface *iface, int freq,
+ 			     int ht_enabled,
+ 			     int chan_offset, int chan_width, int cf1, int cf2);
++int hostapd_dfs_background_chan_update(struct hostapd_iface *iface, int freq,
++				       int ht_enabled, int chan_offset, int chan_width,
++				       int cf1, int cf2, bool expand);
+ int hostapd_dfs_sta_update_state(struct hostapd_iface *iface, int freq,
+ 				 int ht_enabled, int chan_offset, int chan_width,
+ 				 int cf1, int cf2, u32 state);
+diff --git a/src/ap/drv_callbacks.c b/src/ap/drv_callbacks.c
+index f749b33dc..12419c6d4 100644
+--- a/src/ap/drv_callbacks.c
++++ b/src/ap/drv_callbacks.c
+@@ -2089,6 +2089,18 @@ static void hostapd_event_dfs_cac_started(struct hostapd_data *hapd,
+ 			      radar->cf1, radar->cf2);
+ }
+ 
++
++static void hostapd_event_dfs_background_chan_update(struct hostapd_data *hapd,
++						     struct dfs_event *radar, bool expand)
++{
++	wpa_printf(MSG_DEBUG, "DFS background channel %s to %d MHz",
++		   expand ? "expand" : "update", radar->freq);
++	hostapd_dfs_background_chan_update(hapd->iface, radar->freq, radar->ht_enabled,
++					   radar->chan_offset, radar->chan_width,
++					   radar->cf1, radar->cf2, expand);
++}
++
++
+ static void hostapd_event_dfs_sta_cac_skipped(struct hostapd_data *hapd,
+ 					      struct dfs_event *radar)
+ {
+@@ -2428,6 +2440,16 @@ void hostapd_wpa_event(void *ctx, enum wpa_event_type event,
+ 			break;
+ 		hostapd_event_dfs_nop_finished(hapd, &data->dfs_event);
+ 		break;
++	case EVENT_DFS_BACKGROUND_CHAN_UPDATE:
++		if (!data)
++			break;
++		hostapd_event_dfs_background_chan_update(hapd, &data->dfs_event, false);
++		break;
++	case EVENT_DFS_BACKGROUND_CHAN_EXPAND:
++		if (!data)
++			break;
++		hostapd_event_dfs_background_chan_update(hapd, &data->dfs_event, true);
++		break;
+ 	case EVENT_DFS_STA_CAC_SKIPPED:
+ 		if (!data)
+ 			break;
+diff --git a/src/ap/hostapd.h b/src/ap/hostapd.h
+index 1849f38d8..ea8d7254a 100644
+--- a/src/ap/hostapd.h
++++ b/src/ap/hostapd.h
+@@ -602,6 +602,11 @@ struct hostapd_iface {
+ 		unsigned int temp_ch:1;
+ 		/* CAC started on radar offchain */
+ 		unsigned int cac_started:1;
++		/* Main chain should expand its width according to the
++		 * current offchain channel after CAC detection on radar offchain.
++		 */
++		unsigned int expand_ch:1;
++		int new_chwidth;
+ 	} radar_background;
+ 
+ 	u16 hw_flags;
+diff --git a/src/drivers/driver.h b/src/drivers/driver.h
+index 8da93e025..b0a6e3514 100644
+--- a/src/drivers/driver.h
++++ b/src/drivers/driver.h
+@@ -5845,6 +5845,18 @@ enum wpa_event_type {
+ 	 * The channel in the notification is now marked as usable.
+ 	 */
+ 	EVENT_DFS_STA_CAC_EXPIRED,
++
++	/**
++	 * EVENT_DFS_BACKGROUND_CHAN_UPDATE - Notification that background
++	 * channel has been updated.
++	 */
++	EVENT_DFS_BACKGROUND_CHAN_UPDATE,
++
++	/**
++	 * EVENT_DFS_BACKGROUND_CHAN_EXPAND - Notification that background
++	 * channel has been updated and operating channel should expand its width.
++	 */
++	EVENT_DFS_BACKGROUND_CHAN_EXPAND,
+ };
+ 
+ 
+diff --git a/src/drivers/driver_nl80211_event.c b/src/drivers/driver_nl80211_event.c
+index 63d44017c..c1a65eb4e 100644
+--- a/src/drivers/driver_nl80211_event.c
++++ b/src/drivers/driver_nl80211_event.c
+@@ -2514,6 +2514,12 @@ static void nl80211_radar_event(struct wpa_driver_nl80211_data *drv,
+ 	case NL80211_RADAR_CAC_STARTED:
+ 		wpa_supplicant_event(drv->ctx, EVENT_DFS_CAC_STARTED, &data);
+ 		break;
++	case NL80211_RADAR_BACKGROUND_CHAN_UPDATE:
++		wpa_supplicant_event(drv->ctx, EVENT_DFS_BACKGROUND_CHAN_UPDATE, &data);
++		break;
++	case NL80211_RADAR_BACKGROUND_CHAN_EXPAND:
++		wpa_supplicant_event(drv->ctx, EVENT_DFS_BACKGROUND_CHAN_EXPAND, &data);
++		break;
+ 	case NL80211_RADAR_STA_CAC_SKIPPED:
+ 		wpa_supplicant_event(drv->ctx, EVENT_DFS_STA_CAC_SKIPPED, &data);
+ 		break;
+diff --git a/src/drivers/nl80211_copy.h b/src/drivers/nl80211_copy.h
+index 225864b94..9b0a8171a 100644
+--- a/src/drivers/nl80211_copy.h
++++ b/src/drivers/nl80211_copy.h
+@@ -6643,6 +6643,10 @@ enum nl80211_smps_mode {
+  *	applicable for ETSI dfs domain where pre-CAC is valid for ever.
+  * @NL80211_RADAR_CAC_STARTED: Channel Availability Check has been started,
+  *	should be generated by HW if NL80211_EXT_FEATURE_DFS_OFFLOAD is enabled.
++ * @NL80211_RADAR_BACKGROUND_CHAN_UPDATE: background channel is updated by the
++ *	driver.
++ * @NL80211_RADAR_BACKGROUND_CHAN_EXPAND: background channel is updated by the
++ *	driver and required to expand main operating channel.
+  * @NL80211_RADAR_STA_CAC_SKIPPED: STA set the DFS state to available
+  *	when receiving CSA/assoc resp
+  * @NL80211_RADAR_STA_CAC_EXPIRED: STA set the DFS state to usable
+@@ -6655,6 +6659,8 @@ enum nl80211_radar_event {
+ 	NL80211_RADAR_NOP_FINISHED,
+ 	NL80211_RADAR_PRE_CAC_EXPIRED,
+ 	NL80211_RADAR_CAC_STARTED,
++	NL80211_RADAR_BACKGROUND_CHAN_UPDATE,
++	NL80211_RADAR_BACKGROUND_CHAN_EXPAND,
+ 	NL80211_RADAR_STA_CAC_SKIPPED,
+ 	NL80211_RADAR_STA_CAC_EXPIRED,
+ };
+-- 
+2.18.0
+

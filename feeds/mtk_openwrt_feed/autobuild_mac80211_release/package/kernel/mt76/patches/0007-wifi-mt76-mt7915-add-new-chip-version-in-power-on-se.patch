@@ -1,0 +1,28 @@
+From 9811a44ffa3f54a904ee706c0a15638733781efa Mon Sep 17 00:00:00 2001
+From: Peter Chiu <chui-hao.chiu@mediatek.com>
+Date: Tue, 17 Oct 2023 16:32:51 +0800
+Subject: [PATCH 07/76] wifi: mt76: mt7915: add new chip version in power on
+ sequence
+
+Signed-off-by: Peter Chiu <chui-hao.chiu@mediatek.com>
+---
+ mt7915/soc.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/mt7915/soc.c b/mt7915/soc.c
+index d8c80de..b2916b0 100644
+--- a/mt7915/soc.c
++++ b/mt7915/soc.c
+@@ -517,7 +517,8 @@ static int mt798x_wmac_adie_patch_7976(struct mt7915_dev *dev, u8 adie)
+ 	if (ret)
+ 		return ret;
+ 
+-	if (version == 0x8a00 || version == 0x8a10 || version == 0x8b00) {
++	if (version == 0x8a00 || version == 0x8a10 ||
++	    version == 0x8b00 || version == 0x8c10) {
+ 		rg_xo_01 = 0x1d59080f;
+ 		rg_xo_03 = 0x34c00fe0;
+ 	} else {
+-- 
+2.18.0
+

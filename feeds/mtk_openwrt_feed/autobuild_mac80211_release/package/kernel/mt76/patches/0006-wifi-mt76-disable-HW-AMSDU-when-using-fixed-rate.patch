@@ -1,0 +1,39 @@
+From f03b72e7cfdeb48938b76550f911533fa6241837 Mon Sep 17 00:00:00 2001
+From: Peter Chiu <chui-hao.chiu@mediatek.com>
+Date: Wed, 6 Sep 2023 16:27:25 +0800
+Subject: [PATCH 06/76] wifi: mt76: disable HW AMSDU when using fixed rate
+
+When using fixed rate, HW uses txd DW9 to store tx arrivial time if VTA
+is ture. It would overwrite the msdu_id in txd and lead to token pending
+if amsdu is enable.
+
+Signed-off-by: Peter Chiu <chui-hao.chiu@mediatek.com>
+---
+ mt76_connac_mac.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/mt76_connac_mac.c b/mt76_connac_mac.c
+index c791464..630c640 100644
+--- a/mt76_connac_mac.c
++++ b/mt76_connac_mac.c
+@@ -544,7 +544,7 @@ void mt76_connac2_mac_write_txwi(struct mt76_dev *dev, __le32 *txwi,
+ 	val = FIELD_PREP(MT_TXD5_PID, pid);
+ 	if (pid >= MT_PACKET_ID_FIRST) {
+ 		val |= MT_TXD5_TX_STATUS_HOST;
+-		amsdu_en = amsdu_en && !is_mt7921(dev);
++		amsdu_en = 0;
+ 	}
+ 
+ 	txwi[5] = cpu_to_le32(val);
+@@ -579,6 +579,8 @@ void mt76_connac2_mac_write_txwi(struct mt76_dev *dev, __le32 *txwi,
+ 				spe_idx = 24 + phy_idx;
+ 			txwi[7] |= cpu_to_le32(FIELD_PREP(MT_TXD7_SPE_IDX, spe_idx));
+ 		}
++
++		txwi[7] &= ~cpu_to_le32(MT_TXD7_HW_AMSDU);
+ 	}
+ }
+ EXPORT_SYMBOL_GPL(mt76_connac2_mac_write_txwi);
+-- 
+2.18.0
+

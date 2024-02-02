@@ -1,0 +1,190 @@
+From cb9841c4361d5c1d236b7d257e2d513ecc1c7c91 Mon Sep 17 00:00:00 2001
+From: Michael-CY Lee <michael-cy.lee@mediatek.com>
+Date: Tue, 17 Oct 2023 11:11:40 +0800
+Subject: [PATCH 53/54] mtk: hostapd: add eht_bw320_offset configuration option
+
+This patch introduces a new configuration option, "eht_bw320_offset",
+which enables devices to specify a preferred channelization for 320 MHz
+BSSs when using automatic channel selection (ACS).
+This option is only applicable when the channel is not already decided
+and the bandwidth is set to 320 MHz.
+
+The value and meaning of the option:
+0: auto-detected by hostapd
+1: 320 MHz-1
+2: 320 MHz-2
+
+Signed-off-by: Michael-CY Lee <michael-cy.lee@mediatek.com>
+---
+ hostapd/config_file.c  |  3 +++
+ hostapd/hostapd.conf   |  8 ++++++++
+ src/ap/ap_config.c     |  6 ++++++
+ src/ap/ap_config.h     | 37 +++++++++++++++++++++++++++++++++++++
+ src/ap/ctrl_iface_ap.c | 11 +++++++++++
+ src/ap/drv_callbacks.c |  2 ++
+ 6 files changed, 67 insertions(+)
+
+diff --git a/hostapd/config_file.c b/hostapd/config_file.c
+index 278f6b347..721685baf 100644
+--- a/hostapd/config_file.c
++++ b/hostapd/config_file.c
+@@ -4822,6 +4822,9 @@ static int hostapd_config_fill(struct hostapd_config *conf,
+ 				   line);
+ 			return 1;
+ 		}
++	} else if (os_strcmp(buf, "eht_bw320_offset") == 0) {
++		u8 val = atoi(pos);
++		conf->eht_bw320_offset = val;
+ #endif /* CONFIG_IEEE80211BE */
+ 	} else if (os_strcmp(buf, "edcca_threshold") == 0) {
+ 		if (hostapd_parse_intlist(&conf->edcca_threshold, pos) ||
+diff --git a/hostapd/hostapd.conf b/hostapd/hostapd.conf
+index f16e3b08d..290504317 100644
+--- a/hostapd/hostapd.conf
++++ b/hostapd/hostapd.conf
+@@ -1032,6 +1032,14 @@ wmm_ac_vo_acm=0
+ #eht_oper_chwidth (see vht_oper_chwidth)
+ #eht_oper_centr_freq_seg0_idx
+ 
++#eht_bw320_offset: For automatic channel selection (ACS) to indicate a prefered
++# 320 MHz channelization in EHT mode.
++# If the channel is decided or the bandwidth is not 320 MHz, this option is meaningless.
++# 0 = auto-detect by hostapd
++# 1 = 320 MHz-1
++# 2 = 320 MHz-2
++#eht_bw320_offset=0
++
+ # Disabled subchannel bitmap (16 bits) as per IEEE P802.11be/3.0,
+ # Figure 9-1002c (EHT Operation Information field format). Each bit corresponds
+ # to a 20 MHz channel, the lowest bit corresponds to the lowest frequency. A
+diff --git a/src/ap/ap_config.c b/src/ap/ap_config.c
+index d8dd5495a..3fb98d08f 100644
+--- a/src/ap/ap_config.c
++++ b/src/ap/ap_config.c
+@@ -304,6 +304,7 @@ struct hostapd_config * hostapd_config_defaults(void)
+ 	conf->amsdu = 1;
+ 	conf->pp_mode = PP_DISABLE;
+ 
++	hostapd_set_and_check_bw320_offset(conf, 0);
+ 	return conf;
+ }
+ 
+@@ -1515,6 +1516,7 @@ static int hostapd_config_check_cw(struct hostapd_config *conf, int queue)
+ int hostapd_config_check(struct hostapd_config *conf, int full_config)
+ {
+ 	size_t i;
++	u8 bw320_offset = 0;
+ 
+ 	if (full_config && is_6ghz_op_class(conf->op_class) &&
+ 	    !conf->hw_mode_set) {
+@@ -1566,6 +1568,8 @@ int hostapd_config_check(struct hostapd_config *conf, int full_config)
+ 			   "Cannot set ieee80211be without ieee80211ax");
+ 		return -1;
+ 	}
++
++	bw320_offset = conf->eht_bw320_offset;
+ #endif /* CONFIG_IEEE80211BE */
+ 
+ 	if (full_config && conf->mbssid && !conf->ieee80211ax) {
+@@ -1574,6 +1578,8 @@ int hostapd_config_check(struct hostapd_config *conf, int full_config)
+ 		return -1;
+ 	}
+ 
++	hostapd_set_and_check_bw320_offset(conf, bw320_offset);
++
+ 	for (i = 0; i < conf->num_bss; i++) {
+ 		if (hostapd_config_check_bss(conf->bss[i], conf, full_config))
+ 			return -1;
+diff --git a/src/ap/ap_config.h b/src/ap/ap_config.h
+index 9e39e8285..3e0505594 100644
+--- a/src/ap/ap_config.h
++++ b/src/ap/ap_config.h
+@@ -1184,6 +1184,7 @@ struct hostapd_config {
+ 	struct eht_phy_capabilities_info eht_phy_capab;
+ 	u16 punct_bitmap; /* a bitmap of disabled 20 MHz channels */
+ 	u8 punct_acs_threshold;
++	u8 eht_bw320_offset;
+ #endif /* CONFIG_IEEE80211BE */
+ 
+ 	/* EHT enable/disable config from CHAN_SWITCH */
+@@ -1355,6 +1356,42 @@ hostapd_set_oper_centr_freq_seg1_idx(struct hostapd_config *conf,
+ 	conf->vht_oper_centr_freq_seg1_idx = oper_centr_freq_seg1_idx;
+ }
+ 
++static inline u8
++hostapd_get_bw320_offset(struct hostapd_config *conf)
++{
++#ifdef CONFIG_IEEE80211BE
++	if (conf->ieee80211be && is_6ghz_op_class(conf->op_class) &&
++	    hostapd_get_oper_chwidth(conf) == CONF_OPER_CHWIDTH_320MHZ)
++		return conf->eht_bw320_offset;
++#endif /* CONFIG_IEEE80211BE */
++	return 0;
++}
++
++static inline void
++hostapd_set_and_check_bw320_offset(struct hostapd_config *conf,
++				   u8 bw320_offset)
++{
++#ifdef CONFIG_IEEE80211BE
++	if (conf->ieee80211be && is_6ghz_op_class(conf->op_class) &&
++	    hostapd_get_oper_chwidth(conf) == CONF_OPER_CHWIDTH_320MHZ) {
++		if (conf->channel) {
++			/* If the channel is set, then calculate bw320_offset
++			 * by center frequency segment 0.
++			 */
++			u8 seg0 = hostapd_get_oper_centr_freq_seg0_idx(conf);
++			conf->eht_bw320_offset = (seg0 - 31) % 64 ? 2 : 1;
++		} else {
++			/* If the channel is not set, bw320_offset indicates
++			 * prefered offset of 320 MHz.
++			 */
++			conf->eht_bw320_offset = bw320_offset;
++		}
++	} else {
++		conf->eht_bw320_offset = 0;
++	}
++#endif /* CONFIG_IEEE80211BE */
++}
++
+ #define IBF_DEFAULT_ENABLE 0
+ 
+ int hostapd_mac_comp(const void *a, const void *b);
+diff --git a/src/ap/ctrl_iface_ap.c b/src/ap/ctrl_iface_ap.c
+index 7bdefb4cf..e686fb8b7 100644
+--- a/src/ap/ctrl_iface_ap.c
++++ b/src/ap/ctrl_iface_ap.c
+@@ -831,6 +831,17 @@ int hostapd_ctrl_iface_status(struct hostapd_data *hapd, char *buf,
+ 		if (os_snprintf_error(buflen - len, ret))
+ 			return len;
+ 		len += ret;
++
++		if (is_6ghz_op_class(iface->conf->op_class) &&
++		    hostapd_get_oper_chwidth(iface->conf) ==
++		    CONF_OPER_CHWIDTH_320MHZ) {
++			ret = os_snprintf(buf + len, buflen - len,
++					  "eht_bw320_offset=%d\n",
++					  iface->conf->eht_bw320_offset);
++			if (os_snprintf_error(buflen - len, ret))
++				return len;
++			len += ret;
++		}
+ 	}
+ #endif /* CONFIG_IEEE80211BE */
+ 
+diff --git a/src/ap/drv_callbacks.c b/src/ap/drv_callbacks.c
+index 12419c6d4..b0d9420e8 100644
+--- a/src/ap/drv_callbacks.c
++++ b/src/ap/drv_callbacks.c
+@@ -1175,6 +1175,8 @@ void hostapd_event_ch_switch(struct hostapd_data *hapd, int freq, int ht,
+ 	hostapd_set_oper_chwidth(hapd->iconf, chwidth);
+ 	hostapd_set_oper_centr_freq_seg0_idx(hapd->iconf, seg0_idx);
+ 	hostapd_set_oper_centr_freq_seg1_idx(hapd->iconf, seg1_idx);
++	/* Auto-detect new bw320_offset */
++	hostapd_set_and_check_bw320_offset(hapd->iconf, 0);
+ #ifdef CONFIG_IEEE80211BE
+ 	hapd->iconf->punct_bitmap = punct_bitmap;
+ #endif /* CONFIG_IEEE80211BE */
+-- 
+2.18.0
+

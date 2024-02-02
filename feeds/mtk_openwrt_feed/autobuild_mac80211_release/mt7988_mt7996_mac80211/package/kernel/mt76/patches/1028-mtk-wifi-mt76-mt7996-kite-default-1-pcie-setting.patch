@@ -1,0 +1,57 @@
+From 34597329f87f553c3f19212067f7a0c7c0265cd5 Mon Sep 17 00:00:00 2001
+From: StanleyYP Wang <StanleyYP.Wang@mediatek.com>
+Date: Thu, 13 Jul 2023 16:36:36 +0800
+Subject: [PATCH 1028/1044] mtk: wifi: mt76: mt7996: kite default 1-pcie
+ setting
+
+Signed-off-by: StanleyYP Wang <StanleyYP.Wang@mediatek.com>
+---
+ mt7996/pci.c | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/mt7996/pci.c b/mt7996/pci.c
+index 04056181..05830c01 100644
+--- a/mt7996/pci.c
++++ b/mt7996/pci.c
+@@ -11,6 +11,9 @@
+ #include "mac.h"
+ #include "../trace.h"
+ 
++static bool hif2_enable = false;
++module_param(hif2_enable, bool, 0644);
++
+ static LIST_HEAD(hif_list);
+ static DEFINE_SPINLOCK(hif_lock);
+ static u32 hif_idx;
+@@ -63,6 +66,9 @@ static struct mt7996_hif *mt7996_pci_init_hif2(struct pci_dev *pdev)
+ {
+ 	hif_idx++;
+ 
++	if (!hif2_enable)
++		return NULL;
++
+ 	if (!pci_get_device(PCI_VENDOR_ID_MEDIATEK, 0x7991, NULL) &&
+ 	    !pci_get_device(PCI_VENDOR_ID_MEDIATEK, 0x799a, NULL))
+ 		return NULL;
+@@ -77,6 +83,9 @@ static int mt7996_pci_hif2_probe(struct pci_dev *pdev)
+ {
+ 	struct mt7996_hif *hif;
+ 
++	if (!hif2_enable)
++		return 0;
++
+ 	hif = devm_kzalloc(&pdev->dev, sizeof(*hif), GFP_KERNEL);
+ 	if (!hif)
+ 		return -ENOMEM;
+@@ -101,6 +110,8 @@ static int mt7996_pci_probe(struct pci_dev *pdev,
+ 	int irq, hif2_irq, ret;
+ 	struct mt76_dev *mdev;
+ 
++	hif2_enable |= (id->device == 0x7990 || id->device == 0x7991);
++
+ 	ret = pcim_enable_device(pdev);
+ 	if (ret)
+ 		return ret;
+-- 
+2.18.0
+

@@ -1,0 +1,42 @@
+From f0ec3acdda2dd199e0eddcf0c5ae2dd8b305b547 Mon Sep 17 00:00:00 2001
+From: MeiChia Chiu <meichia.chiu@mediatek.com>
+Date: Thu, 26 Oct 2023 10:08:10 +0800
+Subject: [PATCH 21/25] mtk: wifi: mt76: mt7996: Fixed null pointer dereference
+ issue
+
+Without this patch, when the station is still in Authentication stage and
+sends a "Notify bandwidth change action frame" to AP at the same time,
+there will be a race condition that causes a crash to occur because the AP
+access "msta->vif" that has not been fully initialized.
+
+Signed-off-by: Bo Jiao <Bo.Jiao@mediatek.com>
+Signed-off-by: Money Wang <money.wang@mediatek.com>
+Signed-off-by: MeiChia Chiu <meichia.chiu@mediatek.com>
+---
+ mt7996/main.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/mt7996/main.c b/mt7996/main.c
+index 4db8899c..9fbd87d5 100644
+--- a/mt7996/main.c
++++ b/mt7996/main.c
+@@ -1063,9 +1063,16 @@ static void mt7996_sta_rc_update(struct ieee80211_hw *hw,
+ 				 struct ieee80211_sta *sta,
+ 				 u32 changed)
+ {
++	struct mt7996_sta *msta = (struct mt7996_sta *)sta->drv_priv;
+ 	struct mt7996_phy *phy = mt7996_hw_phy(hw);
+ 	struct mt7996_dev *dev = phy->dev;
+ 
++	if (!msta->vif) {
++		dev_warn(dev->mt76.dev, "Un-initialized STA %pM wcid %d in rc_work\n",
++			 sta->addr, msta->wcid.idx);
++		return;
++	}
++
+ 	mt7996_sta_rc_work(&changed, sta);
+ 	ieee80211_queue_work(hw, &dev->rc_work);
+ }
+-- 
+2.18.0
+

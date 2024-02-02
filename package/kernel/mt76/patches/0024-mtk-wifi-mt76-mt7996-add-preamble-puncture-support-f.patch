@@ -1,0 +1,97 @@
+From 5fd32e152d666b1385953a42193ca0063dc78a10 Mon Sep 17 00:00:00 2001
+From: Howard Hsu <howard-yh.hsu@mediatek.com>
+Date: Fri, 22 Sep 2023 10:32:37 +0800
+Subject: [PATCH 24/25] mtk: wifi: mt76: mt7996: add preamble puncture support
+ for mt7996
+
+Add support configure preamble puncture feature through mcu commands.
+
+Signed-off-by: Howard Hsu <howard-yh.hsu@mediatek.com>
+---
+ mt76_connac_mcu.h |  1 +
+ mt7996/mcu.c      | 30 ++++++++++++++++++++++++++++++
+ mt7996/mcu.h      |  4 ++++
+ mt7996/mt7996.h   |  2 ++
+ 4 files changed, 37 insertions(+)
+
+diff --git a/mt76_connac_mcu.h b/mt76_connac_mcu.h
+index 84e77fa0..823b3626 100644
+--- a/mt76_connac_mcu.h
++++ b/mt76_connac_mcu.h
+@@ -1259,6 +1259,7 @@ enum {
+ 	MCU_UNI_CMD_CHANNEL_SWITCH = 0x34,
+ 	MCU_UNI_CMD_THERMAL = 0x35,
+ 	MCU_UNI_CMD_VOW = 0x37,
++	MCU_UNI_CMD_PP = 0x38,
+ 	MCU_UNI_CMD_FIXED_RATE_TABLE = 0x40,
+ 	MCU_UNI_CMD_RRO = 0x57,
+ 	MCU_UNI_CMD_OFFCH_SCAN_CTRL = 0x58,
+diff --git a/mt7996/mcu.c b/mt7996/mcu.c
+index 475a5e18..deabdb1f 100644
+--- a/mt7996/mcu.c
++++ b/mt7996/mcu.c
+@@ -4534,3 +4534,33 @@ int mt7996_mcu_set_txpower_sku(struct mt7996_phy *phy)
+ 	return mt76_mcu_skb_send_msg(&dev->mt76, skb,
+ 				     MCU_WM_UNI_CMD(TXPOWER), true);
+ }
++
++int mt7996_mcu_set_pp_en(struct mt7996_phy *phy, bool auto_mode,
++			 u8 force_bitmap_ctrl, u16 bitmap)
++{
++	struct mt7996_dev *dev = phy->dev;
++	struct {
++		u8 _rsv[4];
++
++		__le16 tag;
++		__le16 len;
++		bool mgmt_mode;
++		u8 band_idx;
++		u8 force_bitmap_ctrl;
++		bool auto_mode;
++		__le16 bitmap;
++		u8 _rsv2[2];
++	} __packed req = {
++		.tag = cpu_to_le16(UNI_CMD_PP_EN_CTRL),
++		.len = cpu_to_le16(sizeof(req) - 4),
++
++		.mgmt_mode = !auto_mode,
++		.band_idx = phy->mt76->band_idx,
++		.force_bitmap_ctrl = force_bitmap_ctrl,
++		.auto_mode = auto_mode,
++		.bitmap = cpu_to_le16(bitmap),
++	};
++
++	return mt76_mcu_send_msg(&dev->mt76, MCU_WM_UNI_CMD(PP),
++				 &req, sizeof(req), false);
++}
+diff --git a/mt7996/mcu.h b/mt7996/mcu.h
+index a9ba63d1..238c4c53 100644
+--- a/mt7996/mcu.h
++++ b/mt7996/mcu.h
+@@ -923,6 +923,10 @@ enum {
+ 	MT7996_SEC_MODE_MAX,
+ };
+ 
++enum {
++	UNI_CMD_PP_EN_CTRL,
++};
++
+ #define MT7996_PATCH_SEC		GENMASK(31, 24)
+ #define MT7996_PATCH_SCRAMBLE_KEY	GENMASK(15, 8)
+ #define MT7996_PATCH_AES_KEY		GENMASK(7, 0)
+diff --git a/mt7996/mt7996.h b/mt7996/mt7996.h
+index e1610d3b..4176e51a 100644
+--- a/mt7996/mt7996.h
++++ b/mt7996/mt7996.h
+@@ -654,6 +654,8 @@ int mt7996_mcu_bcn_prot_enable(struct mt7996_dev *dev, struct ieee80211_vif *vif
+ int mt7996_mcu_wtbl_update_hdr_trans(struct mt7996_dev *dev,
+ 				     struct ieee80211_vif *vif,
+ 				     struct ieee80211_sta *sta);
++int mt7996_mcu_set_pp_en(struct mt7996_phy *phy, bool auto_mode, u8 force_bitmap,
++			 u16 bitmap);
+ #ifdef CONFIG_MAC80211_DEBUGFS
+ void mt7996_sta_add_debugfs(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
+ 			    struct ieee80211_sta *sta, struct dentry *dir);
+-- 
+2.18.0
+

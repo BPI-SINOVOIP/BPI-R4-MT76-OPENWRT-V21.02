@@ -1,0 +1,74 @@
+From 6bef1f8c48baa71a2c7b4bc22e30915fe0651b92 Mon Sep 17 00:00:00 2001
+From: Benjamin Lin <benjamin-jw.lin@mediatek.com>
+Date: Thu, 9 Nov 2023 10:35:13 +0800
+Subject: [PATCH 08/25] mtk: wifi: mt76: mt7992: add TLV sanity check
+
+If TLV involves beacon content, its length might not be 4-byte aligned.
+Therefore, 4-byte alignment check and padding, if necessary, are performed before sending TLV to FW.
+
+Signed-off-by: Benjamin Lin <benjamin-jw.lin@mediatek.com>
+---
+ mt7996/mcu.c | 14 +++++---------
+ mt7996/mcu.h |  4 ++--
+ 2 files changed, 7 insertions(+), 11 deletions(-)
+
+diff --git a/mt7996/mcu.c b/mt7996/mcu.c
+index 8c033030..071a9ec2 100644
+--- a/mt7996/mcu.c
++++ b/mt7996/mcu.c
+@@ -732,13 +732,10 @@ void mt7996_mcu_rx_event(struct mt7996_dev *dev, struct sk_buff *skb)
+ static struct tlv *
+ mt7996_mcu_add_uni_tlv(struct sk_buff *skb, u16 tag, u16 len)
+ {
+-	struct tlv *ptlv, tlv = {
+-		.tag = cpu_to_le16(tag),
+-		.len = cpu_to_le16(len),
+-	};
++	struct tlv *ptlv = skb_put(skb, len);
+ 
+-	ptlv = skb_put(skb, len);
+-	memcpy(ptlv, &tlv, sizeof(tlv));
++	ptlv->tag = cpu_to_le16(tag);
++	ptlv->len = cpu_to_le16(len);
+ 
+ 	return ptlv;
+ }
+@@ -2536,7 +2533,7 @@ int mt7996_mcu_add_beacon(struct ieee80211_hw *hw,
+ 	info = IEEE80211_SKB_CB(skb);
+ 	info->hw_queue |= FIELD_PREP(MT_TX_HW_QUEUE_PHY, phy->mt76->band_idx);
+ 
+-	len = sizeof(*bcn) + MT_TXD_SIZE + skb->len;
++	len = ALIGN(sizeof(*bcn) + MT_TXD_SIZE + skb->len, 4);
+ 	tlv = mt7996_mcu_add_uni_tlv(rskb, UNI_BSS_INFO_BCN_CONTENT, len);
+ 	bcn = (struct bss_bcn_content_tlv *)tlv;
+ 	bcn->enable = en;
+@@ -2605,8 +2602,7 @@ int mt7996_mcu_beacon_inband_discov(struct mt7996_dev *dev,
+ 	info->band = band;
+ 	info->hw_queue |= FIELD_PREP(MT_TX_HW_QUEUE_PHY, phy->mt76->band_idx);
+ 
+-	len = sizeof(*discov) + MT_TXD_SIZE + skb->len;
+-
++	len = ALIGN(sizeof(*discov) + MT_TXD_SIZE + skb->len, 4);
+ 	tlv = mt7996_mcu_add_uni_tlv(rskb, UNI_BSS_INFO_OFFLOAD, len);
+ 
+ 	discov = (struct bss_inband_discovery_tlv *)tlv;
+diff --git a/mt7996/mcu.h b/mt7996/mcu.h
+index 3e013b20..a9ba63d1 100644
+--- a/mt7996/mcu.h
++++ b/mt7996/mcu.h
+@@ -800,10 +800,10 @@ enum {
+ 					 sizeof(struct sta_rec_hdr_trans) +	\
+ 					 sizeof(struct tlv))
+ 
+-#define MT7996_MAX_BEACON_SIZE		1342
++#define MT7996_MAX_BEACON_SIZE		1338
+ #define MT7996_BEACON_UPDATE_SIZE	(sizeof(struct bss_req_hdr) +		\
+ 					 sizeof(struct bss_bcn_content_tlv) +	\
+-					 MT_TXD_SIZE +				\
++					 4 + MT_TXD_SIZE +			\
+ 					 sizeof(struct bss_bcn_cntdwn_tlv) +	\
+ 					 sizeof(struct bss_bcn_mbss_tlv))
+ #define MT7996_MAX_BSS_OFFLOAD_SIZE	(MT7996_MAX_BEACON_SIZE +		\
+-- 
+2.18.0
+

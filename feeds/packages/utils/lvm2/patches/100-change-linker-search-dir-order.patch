@@ -1,0 +1,39 @@
+--- a/libdm/dm-tools/Makefile.in
++++ b/libdm/dm-tools/Makefile.in
+@@ -52,18 +52,18 @@ include $(top_builddir)/libdm/make.tmpl
+ 
+ CFLAGS_dmsetup.o += $(UDEV_CFLAGS) $(EXTRA_EXEC_CFLAGS)
+ CFLAGS_dmfilemapd.o += $(EXTRA_EXEC_CFLAGS)
+-LIBDM_LIBS = -L$(interfacebuilddir) -ldevmapper
++LIBDM_LIBS = -ldevmapper
+ LIBDM_SHARED = $(interfacebuilddir)/libdevmapper.so
+ LIBDM_STATIC = $(interfacebuilddir)/libdevmapper.a
+ 
+ dmsetup: dmsetup.o $(LIBDM_SHARED)
+ 	@echo "    [CC] $@"
+-	$(Q) $(CC) $(CFLAGS) $(LDFLAGS) $(EXTRA_EXEC_LDFLAGS) $(ELDFLAGS) \
++	$(Q) $(CC) $(CFLAGS) -L$(interfacebuilddir) $(LDFLAGS) $(EXTRA_EXEC_LDFLAGS) $(ELDFLAGS) \
+ 	      -o $@ $< $(LIBDM_LIBS) $(LIBS)
+ 
+ dmsetup.static: dmsetup.o $(LIBDM_STATIC)
+ 	@echo "    [CC] $@"
+-	$(Q) $(CC) $(CFLAGS) $(LDFLAGS) -static \
++	$(Q) $(CC) $(CFLAGS) -L$(interfacebuilddir) $(LDFLAGS) -static \
+ 	      -o $@ $< $(LIBDM_LIBS) $(LIBS) $(STATIC_LIBS)
+ 
+ install_dmsetup_dynamic: dmsetup
+@@ -79,12 +79,12 @@ install_dmsetup_static: dmsetup.static
+ 
+ dmfilemapd: dmfilemapd.o $(LIBDM_SHARED)
+ 	@echo "    [CC] $@"
+-	$(Q) $(CC) $(CFLAGS) $(LDFLAGS) $(EXTRA_EXEC_LDFLAGS) $(ELDFLAGS) \
++	$(Q) $(CC) $(CFLAGS) -L$(interfacebuilddir) $(LDFLAGS) $(EXTRA_EXEC_LDFLAGS) $(ELDFLAGS) \
+ 	      -o $@ $< $(LIBDM_LIBS) $(LIBS)
+ 
+ dmfilemapd.static: dmfilemapd.o $(LIBDM_STATIC)
+ 	@echo "    [CC] $@"
+-	$(Q) $(CC) $(CFLAGS) $(LDFLAGS) -static \
++	$(Q) $(CC) $(CFLAGS) -L$(interfacebuilddir) $(LDFLAGS) -static \
+ 	      -o $@ $< $(LIBDM_LIBS) $(LIBS) $(STATIC_LIBS)
+ 
+ install_dmfilemapd_dynamic: dmfilemapd

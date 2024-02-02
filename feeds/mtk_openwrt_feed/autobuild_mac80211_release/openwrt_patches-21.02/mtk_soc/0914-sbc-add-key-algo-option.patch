@@ -1,0 +1,65 @@
+--- a/scripts/mkits.sh
++++ b/scripts/mkits.sh
+@@ -17,7 +17,7 @@
+ usage() {
+ 	printf "Usage: %s -A arch -C comp -a addr -e entry" "$(basename "$0")"
+ 	printf " -v version -k kernel [-D name -n address -d dtb] -o its_file"
+-	printf " [-s script] [-S key_name_hint] [-r ar_ver] [-R rootfs] [-m rfsk]"
++	printf " [-s script] [-S key_name_hint] [-b key_alg] [-r ar_ver] [-R rootfs] [-m rfsk]"
+ 
+ 	printf "\n\t-A ==> set architecture to 'arch'"
+ 	printf "\n\t-C ==> set compression type 'comp'"
+@@ -32,6 +32,7 @@ usage() {
+ 	printf "\n\t-o ==> create output file 'its_file'"
+ 	printf "\n\t-s ==> include u-boot script 'script'"
+ 	printf "\n\t-S ==> add signature at configurations and assign its key_name_hint by 'key_name_hint'"
++	printf "\n\t-b ==> set key algorithm"
+ 	printf "\n\t-r ==> set anti-rollback version to 'fw_ar_ver' (dec)"
+ 	printf "\n\t-R ==> specify rootfs file for embedding hash"
+ 	printf "\n\t-m ==> include encrypted rootfs key'\n"
+@@ -40,11 +41,12 @@ usage() {
+ 
+ FDTNUM=1
+ 
+-while getopts ":A:a:c:C:D:d:e:k:n:o:v:s:S:r:R:m:" OPTION
++while getopts ":A:a:b:c:C:D:d:e:k:n:o:v:s:S:r:R:m:" OPTION
+ do
+ 	case $OPTION in
+ 		A ) ARCH=$OPTARG;;
+ 		a ) LOAD_ADDR=$OPTARG;;
++		b ) KEY_ALG=$OPTARG;;
+ 		c ) CONFIG=$OPTARG;;
+ 		C ) COMPRESS=$OPTARG;;
+ 		D ) DEVICE=$OPTARG;;
+@@ -169,9 +171,12 @@ if [ -n "${KEY_NAME_HINT}" ]; then
+ 		SIGN_OFFLINE="
+ 				sign-offline = <1>;"
+ 	fi
++	if [ -z "${KEY_ALG}" ]; then
++		KEY_ALG="sha256,rsa2048"
++	fi
+ 	SIGNATURE="\
+ 			signature {
+-				algo = \"sha1,rsa2048\";
++				algo = \"${KEY_ALG}\";
+ 				key-name-hint = \"${KEY_NAME_HINT}\";
+ ${SIGN_IMAGES}
+ ${SIGN_OFFLINE}
+--- a/target/linux/mediatek/image/Makefile
++++ b/target/linux/mediatek/image/Makefile
+@@ -99,6 +99,7 @@ define Build/fit-sign
+ 		-A $(LINUX_KARCH) \
+ 		-v $(LINUX_VERSION) \
+ 		$(if $(FIT_KEY_NAME),-S $(FIT_KEY_NAME)) \
++		$(if $(FIT_KEY_ALG),-b $(FIT_KEY_ALG)) \
+ 		$(if $(FW_AR_VER),-r $(FW_AR_VER)) \
+ 		$(if $(CONFIG_TARGET_ROOTFS_SQUASHFS), \
+ 			$(if $(ROOTFS_ENCRYPT), \
+@@ -129,6 +130,7 @@ define Device/Default
+ 	pad-rootfs | append-metadata
+   FIT_KEY_DIR :=
+   FIT_KEY_NAME :=
++  FIT_KEY_ALG :=
+   ROE_KEY_DIR :=
+   ROE_KEY_NAME :=
+ endef

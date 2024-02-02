@@ -1,0 +1,49 @@
+--- a/drivers/net/ethernet/mediatek/mtk_eth_reset.c
++++ b/drivers/net/ethernet/mediatek/mtk_eth_reset.c
+@@ -635,6 +635,9 @@ static int mtk_eth_netdevice_event(struc
+ 				   unsigned long event, void *ptr)
+ {
+ 	switch (event) {
++	case MTK_TOPS_DUMP_DONE:
++		complete(&wait_tops_done);
++		break;
+ 	case MTK_WIFI_RESET_DONE:
+ 	case MTK_FE_STOP_TRAFFIC_DONE:
+ 		pr_info("%s rcv done event:%lx\n", __func__, event);
+--- a/drivers/net/ethernet/mediatek/mtk_eth_reset.h
++++ b/drivers/net/ethernet/mediatek/mtk_eth_reset.h
+@@ -13,6 +13,7 @@
+ #define MTK_WIFI_RESET_DONE	0x2002
+ #define MTK_WIFI_CHIP_ONLINE 	0x2003
+ #define MTK_WIFI_CHIP_OFFLINE 	0x2004
++#define MTK_TOPS_DUMP_DONE	0x3001
+ #define MTK_FE_RESET_NAT_DONE	0x4001
+ 
+ #define MTK_FE_STOP_TRAFFIC	(0x2005)
+@@ -67,6 +68,7 @@ enum mtk_reset_event_id {
+ 
+ extern struct notifier_block mtk_eth_netdevice_nb __read_mostly;
+ extern struct completion wait_ser_done;
++extern struct completion wait_tops_done;
+ extern char* mtk_reset_event_name[32];
+ extern atomic_t reset_lock;
+ extern struct completion wait_nat_done;
+--- a/drivers/net/ethernet/mediatek/mtk_eth_soc.c
++++ b/drivers/net/ethernet/mediatek/mtk_eth_soc.c
+@@ -38,6 +38,7 @@ atomic_t force = ATOMIC_INIT(0);
+ module_param_named(msg_level, mtk_msg_level, int, 0);
+ MODULE_PARM_DESC(msg_level, "Message level (-1=defaults,0=none,...,16=all)");
+ DECLARE_COMPLETION(wait_ser_done);
++DECLARE_COMPLETION(wait_tops_done);
+ 
+ #define MTK_ETHTOOL_STAT(x) { #x, \
+ 			      offsetof(struct mtk_hw_stats, x) / sizeof(u64) }
+@@ -4178,6 +4179,8 @@ static void mtk_pending_work(struct work
+ 				}
+ 			pr_warn("wait for MTK_FE_START_RESET\n");
+ 		}
++		if (!try_wait_for_completion(&wait_tops_done))
++			pr_warn("wait for MTK_TOPS_DUMP_DONE\n");
+ 		rtnl_lock();
+ 		break;
+ 	}

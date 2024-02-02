@@ -1,0 +1,26 @@
+From 45bfb188573dae7bcc4c24fb22311c51c82a22d1 Mon Sep 17 00:00:00 2001
+From: "himanshu.goyal" <himanshu.goyal@mediatek.com>
+Date: Tue, 24 Jan 2023 19:06:44 +0800
+Subject: [PATCH 14/54] mtk: hostapd: Add vendor command attribute for RTS BW
+ signaling.
+
+Signed-off-by: himanshu.goyal <himanshu.goyal@mediatek.com>
+---
+ src/common/mtk_vendor.h | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/src/common/mtk_vendor.h b/src/common/mtk_vendor.h
+index 7b4d7c11a..ace993bc8 100644
+--- a/src/common/mtk_vendor.h
++++ b/src/common/mtk_vendor.h
+@@ -172,6 +172,7 @@ enum mtk_vendor_attr_wireless_ctrl {
+ 	MTK_VENDOR_ATTR_WIRELESS_CTRL_MIMO,
+ 	MTK_VENDOR_ATTR_WIRELESS_CTRL_AMSDU,
+ 	MTK_VENDOR_ATTR_WIRELESS_CTRL_CERT,
++	MTK_VENDOR_ATTR_WIRELESS_CTRL_RTS_SIGTA,
+ 
+ 	/* keep last */
+ 	NUM_MTK_VENDOR_ATTRS_WIRELESS_CTRL,
+-- 
+2.18.0
+

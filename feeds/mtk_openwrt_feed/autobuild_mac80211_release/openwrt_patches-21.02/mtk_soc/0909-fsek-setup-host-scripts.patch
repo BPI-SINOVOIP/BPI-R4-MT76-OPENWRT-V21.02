@@ -1,0 +1,349 @@
+diff --git a/scripts/enc-rfsk.sh b/scripts/enc-rfsk.sh
+new file mode 100755
+index 0000000..d396127
+--- /dev/null
++++ b/scripts/enc-rfsk.sh
+@@ -0,0 +1,194 @@
++#!/bin/bash
++# use roe-key to encrypt rootfs-key, and generate fit-secret
++usage() {
++	printf "Usage: %s -s build_dir -d key_dir -f fit" "$(basename "$0")"
++	printf "encrypt rootfs key: [-k roe_key] "
++	printf "generate FIT-secret: [-k roe_key -c config_name]\n"
++	printf "\n\t-c ==> config name with signature node"
++	printf "\n\t-d ==> key_directory"
++	printf "\n\t-f ==> fit image file"
++	printf "\n\t-k ==> roe key"
++	printf "\n\t-s ==> build directory"
++	exit 1
++}
++
++hex2bin() {
++	$PERL -e 'print pack "H*", <STDIN>'
++}
++
++bin2hex() {
++	od -An -t x1 -w128 | sed "s/ //g"
++}
++
++hkdf() {
++	local key=$1
++	local info=$2
++	local salt=$3
++	local k_derived=$(${OPENSSL} kdf -keylen 32 -kdfopt digest:SHA2-256 \
++		-kdfopt hexkey:$(cat ${key} | bin2hex) \
++		-kdfopt hexsalt:$salt \
++		-kdfopt info:$info HKDF | sed "s/://g")
++	echo $k_derived
++}
++
++gen_aes_key() {
++	out=$1
++	$OPENSSL rand -out $out 32
++}
++
++aes_cbc_enc() {
++	local in=$1
++	local out=$2
++	local key=$3
++	local iv=$(${OPENSSL} rand -hex 16)
++	$OPENSSL enc -e -aes-256-cbc -in $in -out ${out}.tmp -K $key -iv $iv
++
++	echo -n $iv | hex2bin > $out
++	cat ${out}.tmp >> $out
++	rm ${out}.tmp
++}
++
++aes_gcm_enc() {
++	local in=$1
++	local out=$2
++	local key=$3
++	local aad=$4
++	local iv=$(${OPENSSL} rand -hex 12)
++	$AESGCM -e -i $in -o $out -k $key -n $iv -a $aad
++}
++
++# encrypt data with AES
++# encrypted-data-format:
++# -----------------------------------------------
++# | salt | iv | k-tempx.enc | iv | tag | in.enc |
++# -----------------------------------------------
++enc_data() {
++	local k_temp=$1
++	local in=$2
++	local out=$3
++	local info=$4
++	local salt=$(${OPENSSL} rand -hex 16)
++
++	echo -n $salt | hex2bin > $out
++
++	# encrypt k-tempx
++	aes_cbc_enc $k_temp ${out}.tmp $(hkdf ${ROE_KEY}.key ${info} ${salt})
++
++	cat ${out}.tmp >> $out
++
++	aad=$(cat ${out} | bin2hex)
++	# encrypt in
++	aes_gcm_enc $in ${out}.tmp $(cat $k_temp | bin2hex) $aad
++
++	cat ${out}.tmp >> $out
++	rm ${out}.tmp
++}
++
++# generate FIT-secret and insert back into FIT
++gen_fit_secret() {
++	echo "Generating fit-secret"
++
++	if [ ! -f "${FIT}" ]; then
++		printf "%s not found\n" "${FIT}"
++		exit 1
++	fi
++
++	SECRETS_DIR=$BUILD_DIR/fit-secrets
++	if [ ! -d "${SECRETS_DIR}" ]; then
++		mkdir -p $SECRETS_DIR
++	fi
++
++	LD_LIBRARY_PATH=${LIBFDT_PATH} \
++	$FDTGET $FIT /configurations/$CONFIG/signature value -t bi > \
++		$SECRETS_DIR/$FIT_NAME-signature.tmp || exit 1
++
++	echo -n $(cat ${SECRETS_DIR}/${FIT_NAME}-signature.tmp) | xargs printf "%02x" | \
++		hex2bin > $SECRETS_DIR/$FIT_NAME-signature.raw
++
++	$OPENSSL dgst -sha256 -binary -out $SECRETS_DIR/$FIT_NAME-signature.hash \
++		$SECRETS_DIR/$FIT_NAME-signature.raw || exit 1
++
++	gen_aes_key $KEY_DIR/${TEMP2_KEY_NAME}.key
++
++	enc_data $KEY_DIR/${TEMP2_KEY_NAME}.key \
++		 $SECRETS_DIR/$FIT_NAME-signature.hash \
++		 $SECRETS_DIR/$FIT_NAME-secret.enc \
++		 fit-secret
++
++	LD_LIBRARY_PATH=${LIBFDT_PATH} \
++	$FDTPUT -c -p $FIT /fit-secrets/$CONFIG || exit 1
++	LD_LIBRARY_PATH=${LIBFDT_PATH} \
++	$FDTPUT $FIT /fit-secrets/$CONFIG algo -t s "sha256"
++	LD_LIBRARY_PATH=${LIBFDT_PATH} \
++	$FDTPUT $FIT /fit-secrets/$CONFIG data -t x \
++		$(cat ${SECRETS_DIR}/${FIT_NAME}-secret.enc | bin2hex | \
++		sed 's/ //g; s/.\{8\}/0x& /g; s/.$//g')
++}
++
++# encrypt rootfs key
++enc_rfsk() {
++	echo "Encrypting rootfs key"
++
++	gen_aes_key $KEY_DIR/${ROOTFS_KEY_NAME}.key
++	gen_aes_key $KEY_DIR/${TEMP1_KEY_NAME}.key
++
++	enc_data $KEY_DIR/${TEMP1_KEY_NAME}.key \
++		 $KEY_DIR/${ROOTFS_KEY_NAME}.key \
++		 $BUILD_DIR/${FIT_NAME}-rfsk.enc \
++		 k-rootfs
++}
++
++while getopts "c:d:f:k:s:" OPTION
++do
++	case $OPTION in
++	c ) CONFIG=$OPTARG;;
++	d ) KEY_DIR=$OPTARG;;
++	f ) FIT=$OPTARG;;
++	k ) ROE_KEY=$OPTARG;;
++	s ) BUILD_DIR=$OPTARG;;
++	* ) echo "Invalid option passed to '$0' (options:$*)"
++	usage;;
++	esac
++done
++
++if [ ! -d "${KEY_DIR}" ]; then
++	echo "key directory not found"
++	usage;
++fi
++
++if [ ! -d "${BUILD_DIR}" ]; then
++	echo "build directory not found"
++	usage;
++fi
++
++if [ -z "${FIT}" ]; then
++	echo "FIT name is empty"
++	usage;
++fi
++
++if [ -z "${BIN}" ]; then
++	echo "bin directory not found"
++	exit 1
++fi
++
++if [ ! -f "${ROE_KEY}".key ]; then
++	echo "roe-key not found"
++	usage;
++fi
++
++OPENSSL=$BIN/openssl-3
++AESGCM=$BIN/aesgcm
++PERL=$BIN/perl
++FDTGET=$BIN/fdtget
++FDTPUT=$BIN/fdtput
++
++FIT_NAME=$(basename ${FIT} | sed "s/\.[^.]*$//g")
++ROOTFS_KEY_NAME=${FIT_NAME}-rootfs-key
++TEMP1_KEY_NAME=${FIT_NAME}-temp1-key
++TEMP2_KEY_NAME=${FIT_NAME}-temp2-key
++
++if [ ! -z "${CONFIG}" ]; then
++	gen_fit_secret;
++else
++	enc_rfsk;
++fi
+diff --git a/scripts/fdt-patch-dm-crypt.sh b/scripts/fdt-patch-dm-crypt.sh
+new file mode 100755
+index 0000000..9ad87c7
+--- /dev/null
++++ b/scripts/fdt-patch-dm-crypt.sh
+@@ -0,0 +1,26 @@
++# !/bin/bash
++FDTGET=$BIN/fdtget
++FDTPUT=$BIN/fdtput
++PERL=$BIN/perl
++
++FDT=$1
++SUMMARY=$2
++BOOTARGS=$(LD_LIBRARY_PATH=${LIBFDT_PATH} \
++		${FDTGET} ${FDT} /chosen bootargs | sed "s/\"*$/;/g")
++DEVICE_PATH=$(echo -n ${BOOTARGS} | grep -o "root=/dev/dm-[0-9]\+" | \
++		grep -o "/dev/dm-[0-9]\+")
++DEVICE_NUM=$(echo -n ${DEVICE_PATH} | grep -o "[0-9]\+")
++BOOTARGS=$(echo -n ${BOOTARGS} | \
++		sed "s/root=\/dev\/dm-${DEVICE_NUM}/root=\/dev\/dm-$((DEVICE_NUM+1))/g")
++DATABLOCKS_NUM=$(cat ${SUMMARY} | grep "Data blocks:" | grep -o "[0-9]\+")
++CIPHER="aes-xts-plain64"
++KEY=$(${PERL} -E 'say "0" x 64')
++IV_OFFSET=0
++OFFSET=0
++
++NEW_BOOTARGS=$( printf '%sdm-crypt,,,ro,0 %d crypt %s %s %d %s %d"' \
++		"${BOOTARGS}" $((DATABLOCKS_NUM*8)) ${CIPHER} ${KEY} \
++		${IV_OFFSET} ${DEVICE_PATH} ${OFFSET} )
++
++LD_LIBRARY_PATH=${LIBFDT_PATH}
++$FDTPUT $FDT /chosen bootargs -t s "${NEW_BOOTARGS}" || exit 1
+diff --git a/scripts/make-squashfs-encrypted.sh b/scripts/make-squashfs-encrypted.sh
+new file mode 100755
+index 0000000..9bb522b
+--- /dev/null
++++ b/scripts/make-squashfs-encrypted.sh
+@@ -0,0 +1,37 @@
++# !/bin/bash
++ROOTFS=$1
++ENCRYPTED_ROOTFS=$2
++ROOTFS_KEY_DIR=$3
++TARGET_DEVICE=$4
++
++if [ -z "${BIN}" ]; then
++	echo "bin directory not found"
++	exit 1
++fi
++
++CRYPTSETUP=$BIN/cryptsetup
++DEVICE_NAME=$(basename ${TARGET_DEVICE} | sed "s/\.[^.]*$//g")
++ROOTFS_KEY=${ROOTFS_KEY_DIR}/${DEVICE_NAME}-rootfs-key.key
++if [ ! -f "${ROOTFS}" ] || [ -z "${ENCRYPTED_ROOTFS}" ] ||
++   [ ! -f "${ROOTFS_KEY}" ] || [ -z "${DEVICE_NAME}" ]; then
++	exit 1
++fi
++
++FILE_SIZE=`stat -c "%s" ${ROOTFS}`
++BLOCK_SIZE=4096
++DATA_BLOCKS=$((${FILE_SIZE} / ${BLOCK_SIZE}))
++[ $((${FILE_SIZE} % ${BLOCK_SIZE})) -ne 0 ] && DATA_BLOCKS=$((${DATA_BLOCKS} + 1))
++
++# create container
++dd if=/dev/zero of=$ENCRYPTED_ROOTFS bs=4096 count=$DATA_BLOCKS
++
++# mapping encrypted device
++sudo $CRYPTSETUP open --type=plain --cipher=aes-xts-plain64 --key-size=256 \
++	--key-file=$ROOTFS_KEY $ENCRYPTED_ROOTFS ${DEVICE_NAME}
++
++# encrypt squashfs
++sudo dd if=$ROOTFS of=/dev/mapper/${DEVICE_NAME}
++
++# close mapping device
++sudo $CRYPTSETUP close /dev/mapper/${DEVICE_NAME}
++
+diff --git a/scripts/mkits.sh b/scripts/mkits.sh
+index 1c7f292..26bcf70 100755
+--- a/scripts/mkits.sh
++++ b/scripts/mkits.sh
+@@ -17,7 +17,7 @@
+ usage() {
+ 	printf "Usage: %s -A arch -C comp -a addr -e entry" "$(basename "$0")"
+ 	printf " -v version -k kernel [-D name -n address -d dtb] -o its_file"
+-	printf " [-s script] [-S key_name_hint] [-r ar_ver] [-R rootfs]"
++	printf " [-s script] [-S key_name_hint] [-r ar_ver] [-R rootfs] [-m rfsk]"
+ 
+ 	printf "\n\t-A ==> set architecture to 'arch'"
+ 	printf "\n\t-C ==> set compression type 'comp'"
+@@ -33,13 +33,14 @@ usage() {
+ 	printf "\n\t-s ==> include u-boot script 'script'"
+ 	printf "\n\t-S ==> add signature at configurations and assign its key_name_hint by 'key_name_hint'"
+ 	printf "\n\t-r ==> set anti-rollback version to 'fw_ar_ver' (dec)"
+-	printf "\n\t-R ==> specify rootfs file for embedding hash\n"
++	printf "\n\t-R ==> specify rootfs file for embedding hash"
++	printf "\n\t-m ==> include encrypted rootfs key'\n"
+ 	exit 1
+ }
+ 
+ FDTNUM=1
+ 
+-while getopts ":A:a:c:C:D:d:e:k:n:o:v:s:S:r:R:" OPTION
++while getopts ":A:a:c:C:D:d:e:k:n:o:v:s:S:r:R:m:" OPTION
+ do
+ 	case $OPTION in
+ 		A ) ARCH=$OPTARG;;
+@@ -57,6 +58,7 @@ do
+ 		S ) KEY_NAME_HINT=$OPTARG;;
+ 		r ) AR_VER=$OPTARG;;
+ 		R ) ROOTFS_FILE=$OPTARG;;
++		m ) ROOTFS_KEY=$OPTARG;;
+ 		* ) echo "Invalid option passed to '$0' (options:$*)"
+ 		usage;;
+ 	esac
+@@ -91,6 +93,19 @@ if [ -n "${DTB}" ]; then
+ 	FDT_PROP="fdt = \"fdt-$FDTNUM\";"
+ fi
+ 
++# Conditionally create encrypted rootfs-key information
++if [ -n "${ROOTFS_KEY}" ]; then
++	RFSK_NODE="
++			rfsk = <$(cat ${ROOTFS_KEY} | od -An -t x1 -w256 | sed 's/ //g; s/.\{8\}/0x& /g; s/.$//g')>;";
++
++	FIT_SECRET_NODE="
++	fit-secrets {
++		${CONFIG} {
++		};
++	};
++"
++fi
++
+ # Conditionally create rootfs hash information
+ if [ -f "${ROOTFS_FILE}" ]; then
+ 	ROOTFS_SIZE=$(stat -c %s ${ROOTFS_FILE})
+@@ -200,12 +215,15 @@ ${ROOTFS}
+ 		${CONFIG} {
+ 			description = \"OpenWrt\";
+ ${FW_AR_VER}
++${RFSK_NODE}
+ ${LOADABLES}
+ 			kernel = \"kernel-1\";
+ 			${FDT_PROP}
+ ${SIGNATURE}
+ 		};
+ 	};
++
++${FIT_SECRET_NODE}
+ };"
+ 
+ # Write .its file to disk

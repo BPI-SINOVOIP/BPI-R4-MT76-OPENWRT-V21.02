@@ -1,0 +1,77 @@
+From ad7d61fd7de176ea7bec5b675ddfc355070833f7 Mon Sep 17 00:00:00 2001
+From: Peter Chiu <chui-hao.chiu@mediatek.com>
+Date: Tue, 29 Aug 2023 09:22:18 +0800
+Subject: [PATCH 50/76] wifi: mt76: update debugfs knob to dump token pending
+ time
+
+Signed-off-by: Peter Chiu <chui-hao.chiu@mediatek.com>
+---
+ mt76.h               | 2 ++
+ mt7915/mac.c         | 6 ++++++
+ mt7915/mtk_debugfs.c | 6 ++----
+ 3 files changed, 10 insertions(+), 4 deletions(-)
+
+diff --git a/mt76.h b/mt76.h
+index c322135..4704c50 100644
+--- a/mt76.h
++++ b/mt76.h
+@@ -401,6 +401,8 @@ struct mt76_txwi_cache {
+ 	struct list_head list;
+ 	dma_addr_t dma_addr;
+ 
++	unsigned long jiffies;
++
+ 	union {
+ 		struct sk_buff *skb;
+ 		void *ptr;
+diff --git a/mt7915/mac.c b/mt7915/mac.c
+index 07f0e30..170a51b 100644
+--- a/mt7915/mac.c
++++ b/mt7915/mac.c
+@@ -803,6 +803,8 @@ int mt7915_tx_prepare_skb(struct mt76_dev *mdev, void *txwi_ptr,
+ 	if (id < 0)
+ 		return id;
+ 
++	t->jiffies = jiffies;
++
+ 	pid = mt76_tx_status_skb_add(mdev, wcid, tx_info->skb);
+ 	mt7915_mac_write_txwi(mdev, txwi_ptr, tx_info->skb, wcid, pid, key,
+ 			      qid, 0);
+@@ -1001,6 +1003,8 @@ mt7915_mac_tx_free(struct mt7915_dev *dev, void *data, int len)
+ 			if (!txwi)
+ 				continue;
+ 
++			txwi->jiffies = 0;
++
+ 			mt76_connac2_txwi_free(mdev, txwi, sta, &free_list);
+ 		}
+ 	}
+@@ -1033,6 +1037,8 @@ mt7915_mac_tx_free_v0(struct mt7915_dev *dev, void *data, int len)
+ 		if (!txwi)
+ 			continue;
+ 
++		txwi->jiffies = 0;
++
+ 		mt76_connac2_txwi_free(mdev, txwi, NULL, &free_list);
+ 	}
+ 
+diff --git a/mt7915/mtk_debugfs.c b/mt7915/mtk_debugfs.c
+index 671791e..f4bc89c 100644
+--- a/mt7915/mtk_debugfs.c
++++ b/mt7915/mtk_debugfs.c
+@@ -2211,10 +2211,8 @@ static int mt7915_token_read(struct seq_file *s, void *data)
+ 	seq_printf(s, "Cut through token:\n");
+ 	spin_lock_bh(&dev->mt76.token_lock);
+ 	idr_for_each_entry(&dev->mt76.token, txwi, id) {
+-		seq_printf(s, "%4d ", id);
+-		count++;
+-		if (count % 8 == 0)
+-			seq_printf(s, "\n");
++		seq_printf(s, "%4d (token pending %u ms)\n", id,
++			   jiffies_to_msecs(jiffies - txwi->jiffies));
+ 	}
+ 	spin_unlock_bh(&dev->mt76.token_lock);
+ 	seq_printf(s, "\n");
+-- 
+2.18.0
+

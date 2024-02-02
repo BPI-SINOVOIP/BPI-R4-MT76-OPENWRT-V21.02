@@ -1,0 +1,43 @@
+Source-Makefile: feeds/mtk_openwrt_feed/package-21.02/kernel/pce/Makefile
+
+Package: kmod-pce
+Submenu: Drivers
+Version: <LINUX_VERSION>-1
+Depends: kmod-mediatek_hnat
+Conflicts: 
+Menu-Depends: 
+Provides: 
+Section: kernel
+Category: MTK Properties
+Title: MTK Packet Classification Engine Driver
+Maintainer: 
+Source: 
+Type: ipkg
+Description:   Support for Mediatek Packet Classification Engine. The HW provides abilities
+  to redirect specific packet type to different Mediatek HW offload engine.
+  In addition, the HW can be configured with multiple rules, such as IP protocol,
+  destination IP address, Layer 4 header or data, to match with the inbound packet.
+  Support HW offload engine includes tunnel offload engine, inline crypto offload
+  engine.
+
+@@
+
+Package: kmod-pce-autoload
+Submenu: Drivers
+Version: <LINUX_VERSION>-1
+Depends: kmod-pce
+Conflicts: 
+Menu-Depends: 
+Provides: 
+Section: kernel
+Category: MTK Properties
+Title: MTK Packet Classification Engine Auto Load
+Maintainer: 
+Source: 
+Type: ipkg
+Description:   Support for Mediatek Packet Classification Engine auto load on system
+  boot process.
+
+@@
+
+

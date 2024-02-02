@@ -1,0 +1,122 @@
+From 41bbf8a772f11e565ea2a6ee7b3fd26e43f315a3 Mon Sep 17 00:00:00 2001
+From: Yi-Chia Hsieh <yi-chia.hsieh@mediatek.com>
+Date: Fri, 18 Aug 2023 10:17:08 +0800
+Subject: [PATCH 2009/2028] mtk: wifi: mt76: mt7996: add per bss statistic info
+
+Whenever WED is enabled, unicast traffic might run through HW path.
+As a result, we need to count them using WM event.
+Broadcast and multicast traffic on the other hand, will be counted in mac80211
+as they always go through SW path and thus mac80211 can always see and count them.
+
+|         | Tx                             | Rx                        |
+|---------|--------------------------------|---------------------------|
+| Unicast | mt76                           | mt76                      |
+|         | __mt7996_stat_to_netdev()      | __mt7996_stat_to_netdev() |
+|---------|--------------------------------|---------------------------|
+| BMCast  | mac80211                       | mac80211                  |
+|         | __ieee80211_subif_start_xmit() | ieee80211_deliver_skb()   |
+---
+ mt7996/init.c |  1 +
+ mt7996/main.c |  1 +
+ mt7996/mcu.c  | 40 +++++++++++++++++++++++++++++++++++-----
+ 3 files changed, 37 insertions(+), 5 deletions(-)
+
+diff --git a/mt7996/init.c b/mt7996/init.c
+index d908c795..19a7cd10 100644
+--- a/mt7996/init.c
++++ b/mt7996/init.c
+@@ -390,6 +390,7 @@ mt7996_init_wiphy(struct ieee80211_hw *hw, struct mtk_wed_device *wed)
+ 	wiphy_ext_feature_set(wiphy, NL80211_EXT_FEATURE_ACK_SIGNAL_SUPPORT);
+ 	wiphy_ext_feature_set(wiphy, NL80211_EXT_FEATURE_CAN_REPLACE_PTK0);
+ 	wiphy_ext_feature_set(wiphy, NL80211_EXT_FEATURE_MU_MIMO_AIR_SNIFFER);
++	wiphy_ext_feature_set(wiphy, NL80211_EXT_FEATURE_STAS_COUNT);
+ 
+ 	wiphy_ext_feature_set(wiphy, NL80211_EXT_FEATURE_OPERATING_CHANNEL_VALIDATION);
+ 	wiphy_ext_feature_set(wiphy, NL80211_EXT_FEATURE_BEACON_PROTECTION);
+diff --git a/mt7996/main.c b/mt7996/main.c
+index f4d50ec1..3d6cc25a 100644
+--- a/mt7996/main.c
++++ b/mt7996/main.c
+@@ -251,6 +251,7 @@ static int mt7996_add_interface(struct ieee80211_hw *hw,
+ 	mvif->sta.wcid.phy_idx = band_idx;
+ 	mvif->sta.wcid.hw_key_idx = -1;
+ 	mvif->sta.wcid.tx_info |= MT_WCID_TX_INFO_SET;
++	mvif->sta.vif = mvif;
+ 	mt76_wcid_init(&mvif->sta.wcid);
+ 
+ 	mt7996_mac_wtbl_update(dev, idx,
+diff --git a/mt7996/mcu.c b/mt7996/mcu.c
+index 97874bb4..9076020e 100644
+--- a/mt7996/mcu.c
++++ b/mt7996/mcu.c
+@@ -521,6 +521,27 @@ mt7996_mcu_update_tx_gi(struct rate_info *rate, struct all_sta_trx_rate *mcu_rat
+ 	return 0;
+ }
+ 
++static inline void __mt7996_stat_to_netdev(struct mt76_phy *mphy,
++					   struct mt76_wcid *wcid,
++					   u32 tx_bytes, u32 rx_bytes,
++					   u32 tx_packets, u32 rx_packets)
++{
++	struct mt7996_sta *msta;
++	struct ieee80211_vif *vif;
++	struct wireless_dev *wdev;
++
++	if (wiphy_ext_feature_isset(mphy->hw->wiphy,
++				    NL80211_EXT_FEATURE_STAS_COUNT)) {
++		msta = container_of(wcid, struct mt7996_sta, wcid);
++		vif = container_of((void *)msta->vif, struct ieee80211_vif,
++				   drv_priv);
++		wdev = ieee80211_vif_to_wdev(vif);
++
++		dev_sw_netstats_tx_add(wdev->netdev, tx_packets, tx_bytes);
++		dev_sw_netstats_rx_add(wdev->netdev, rx_packets, rx_bytes);
++	}
++}
++
+ static void
+ mt7996_mcu_rx_all_sta_info_event(struct mt7996_dev *dev, struct sk_buff *skb)
+ {
+@@ -536,7 +557,7 @@ mt7996_mcu_rx_all_sta_info_event(struct mt7996_dev *dev, struct sk_buff *skb)
+ 		u16 wlan_idx;
+ 		struct mt76_wcid *wcid;
+ 		struct mt76_phy *mphy;
+-		u32 tx_bytes, rx_bytes;
++		u32 tx_bytes, rx_bytes, tx_packets, rx_packets;
+ 
+ 		switch (le16_to_cpu(res->tag)) {
+ 		case UNI_ALL_STA_TXRX_RATE:
+@@ -564,6 +585,9 @@ mt7996_mcu_rx_all_sta_info_event(struct mt7996_dev *dev, struct sk_buff *skb)
+ 				wcid->stats.tx_bytes += tx_bytes;
+ 				wcid->stats.rx_bytes += rx_bytes;
+ 
++				__mt7996_stat_to_netdev(mphy, wcid,
++							tx_bytes, rx_bytes, 0, 0);
++
+ 				ieee80211_tpt_led_trig_tx(mphy->hw, tx_bytes);
+ 				ieee80211_tpt_led_trig_rx(mphy->hw, rx_bytes);
+ 			}
+@@ -575,10 +599,16 @@ mt7996_mcu_rx_all_sta_info_event(struct mt7996_dev *dev, struct sk_buff *skb)
+ 			if (!wcid)
+ 				break;
+ 
+-			wcid->stats.tx_packets +=
+-				le32_to_cpu(res->msdu_cnt[i].tx_msdu_cnt);
+-			wcid->stats.rx_packets +=
+-				le32_to_cpu(res->msdu_cnt[i].rx_msdu_cnt);
++			mphy = mt76_dev_phy(&dev->mt76, wcid->phy_idx);
++
++			tx_packets = le32_to_cpu(res->msdu_cnt[i].tx_msdu_cnt);
++			rx_packets = le32_to_cpu(res->msdu_cnt[i].rx_msdu_cnt);
++
++			wcid->stats.tx_packets += tx_packets;
++			wcid->stats.rx_packets += rx_packets;
++
++			__mt7996_stat_to_netdev(mphy, wcid, 0, 0,
++						tx_packets, rx_packets);
+ 			break;
+ 		default:
+ 			break;
+-- 
+2.18.0
+

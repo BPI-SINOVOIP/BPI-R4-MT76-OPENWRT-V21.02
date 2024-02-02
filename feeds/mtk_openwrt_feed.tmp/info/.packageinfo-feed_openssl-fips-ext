@@ -1,0 +1,21 @@
+Source-Makefile: feeds/mtk_openwrt_feed/feed/openssl-fips-ext/Makefile
+
+Package: openssl-fips-ext
+Submenu: FIPS
+Version: 1
+Depends: +libc +USE_GLIBC:librt +USE_GLIBC:libpthread libopenssl
+Conflicts: 
+Menu-Depends: 
+Provides: 
+Section: Utilities
+Category: Utilities
+Repository: base
+Title: openssl-fips-ext -- simple tool for gcm and ccm based on openssl api
+Maintainer: 
+Source: 
+Type: ipkg
+Description: 	Simple tool for gcm and ccm
+
+@@
+
+

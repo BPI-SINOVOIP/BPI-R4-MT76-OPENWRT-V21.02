@@ -1,0 +1,44 @@
+--- a/package/base-files/files/lib/upgrade/nand.sh
++++ b/package/base-files/files/lib/upgrade/nand.sh
+@@ -460,6 +460,11 @@ ubi_do_upgrade() {
+ 	local dual_boot=$(cat /sys/module/boot_param/parameters/dual_boot 2>/dev/null)
+ 	local file_type=$(identify $1)
+ 
++	if [ -b /dev/dm-0 ]; then
++		v "Detach all device mapper devices"
++		dmsetup remove_all
++	fi
++
+ 	if [ x"${dual_boot}" != xY ]; then
+ 		nand_do_upgrade "$1"
+ 		return
+--- a/target/linux/mediatek/base-files/lib/upgrade/mmc.sh
++++ b/target/linux/mediatek/base-files/lib/upgrade/mmc.sh
+@@ -217,6 +217,11 @@ mtk_mmc_do_upgrade_dual_boot() {
+ mtk_mmc_do_upgrade() {
+ 	local dual_boot=$(cat /sys/module/boot_param/parameters/dual_boot 2>/dev/null)
+ 
++	if [ -b /dev/dm-0 ]; then
++		v "Detach all device mapper devices"
++		dmsetup remove_all
++	fi
++
+ 	if [ x"${dual_boot}" = xY ]; then
+ 		mtk_mmc_do_upgrade_dual_boot "$1"
+ 	else
+--- a/target/linux/mediatek/mt7981/base-files/lib/upgrade/platform.sh
++++ b/target/linux/mediatek/mt7981/base-files/lib/upgrade/platform.sh
+@@ -1,4 +1,4 @@
+-RAMFS_COPY_BIN='mkfs.f2fs blkid blockdev fw_printenv fw_setenv'
++RAMFS_COPY_BIN='mkfs.f2fs blkid blockdev fw_printenv fw_setenv dmsetup'
+ RAMFS_COPY_DATA="/etc/fw_env.config /var/lock/fw_printenv.lock"
+ platform_do_upgrade() {
+ 	local board=$(board_name)
+--- a/target/linux/mediatek/mt7986/base-files/lib/upgrade/platform.sh
++++ b/target/linux/mediatek/mt7986/base-files/lib/upgrade/platform.sh
+@@ -1,4 +1,4 @@
+-RAMFS_COPY_BIN='mkfs.f2fs blkid blockdev fw_printenv fw_setenv'
++RAMFS_COPY_BIN='mkfs.f2fs blkid blockdev fw_printenv fw_setenv dmsetup'
+ RAMFS_COPY_DATA="/etc/fw_env.config /var/lock/fw_printenv.lock"
+ 
+ platform_do_upgrade() {

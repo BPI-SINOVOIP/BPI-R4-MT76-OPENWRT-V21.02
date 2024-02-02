@@ -1,0 +1,29 @@
+From ca4d4dc688f96320065b35c9b473e378dddef56b Mon Sep 17 00:00:00 2001
+From: Peter Chiu <chui-hao.chiu@mediatek.com>
+Date: Mon, 30 Oct 2023 20:19:41 +0800
+Subject: [PATCH 12/25] mtk: wifi: mt76: mt7996: enable ser query
+
+Do not return -EINVAL when action is UNI_CMD_SER_QUERY for user
+to dump SER information from FW.
+
+Signed-off-by: Peter Chiu <chui-hao.chiu@mediatek.com>
+---
+ mt7996/mcu.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/mt7996/mcu.c b/mt7996/mcu.c
+index 98ea9c20..8c756b31 100644
+--- a/mt7996/mcu.c
++++ b/mt7996/mcu.c
+@@ -3852,6 +3852,8 @@ int mt7996_mcu_set_ser(struct mt7996_dev *dev, u8 action, u8 val, u8 band)
+ 	};
+ 
+ 	switch (action) {
++	case UNI_CMD_SER_QUERY:
++		break;
+ 	case UNI_CMD_SER_SET:
+ 		req.set.mask = cpu_to_le32(val);
+ 		break;
+-- 
+2.18.0
+

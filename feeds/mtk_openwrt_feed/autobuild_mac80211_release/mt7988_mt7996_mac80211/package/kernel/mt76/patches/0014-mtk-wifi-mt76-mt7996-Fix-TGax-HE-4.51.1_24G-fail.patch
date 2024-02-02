@@ -1,0 +1,34 @@
+From 73aed7092e7da26eaf17b1e29bdb94222e073e94 Mon Sep 17 00:00:00 2001
+From: mtk27745 <rex.lu@mediatek.com>
+Date: Fri, 17 Nov 2023 11:01:04 +0800
+Subject: [PATCH 14/25] mtk: wifi: mt76: mt7996: Fix TGax HE-4.51.1_24G fail
+
+According to sta capability to decide to enable/disable wed pao when create ppe entry.
+without this patch, TGax HE-4.51.1_24G will test fail
+
+Signed-off-by: mtk27745 <rex.lu@mediatek.com>
+---
+ mt7996/main.c | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/mt7996/main.c b/mt7996/main.c
+index 6e88420e..4db8899c 100644
+--- a/mt7996/main.c
++++ b/mt7996/main.c
+@@ -1447,7 +1447,12 @@ mt7996_net_fill_forward_path(struct ieee80211_hw *hw,
+ 	path->mtk_wdma.queue = 0;
+ 	path->mtk_wdma.wcid = msta->wcid.idx;
+ 
+-	path->mtk_wdma.amsdu = mtk_wed_is_amsdu_supported(wed);
++	if (ieee80211_hw_check(hw, SUPPORTS_AMSDU_IN_AMPDU) &&
++	    mtk_wed_is_amsdu_supported(wed))
++		path->mtk_wdma.amsdu = msta->wcid.amsdu;
++	else
++		path->mtk_wdma.amsdu = 0;
++
+ 	ctx->dev = NULL;
+ 
+ 	return 0;
+-- 
+2.18.0
+

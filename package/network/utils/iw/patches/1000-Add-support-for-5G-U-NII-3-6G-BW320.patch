@@ -1,0 +1,63 @@
+From ed0fd20be0b27d0f3f95819228c87c771a8c3c43 Mon Sep 17 00:00:00 2001
+From: StanleyYP Wang <StanleyYP.Wang@mediatek.com>
+Date: Thu, 2 Mar 2023 10:07:05 +0800
+Subject: [PATCH] Add support for 5G U-NII-3 & 6G BW320
+
+Signed-off-by: StanleyYP Wang <StanleyYP.Wang@mediatek.com>
+---
+ phy.c  |  4 ++--
+ util.c | 11 ++++++-----
+ 2 files changed, 8 insertions(+), 7 deletions(-)
+
+diff --git a/phy.c b/phy.c
+index 2d489ef..4fa66b7 100644
+--- a/phy.c
++++ b/phy.c
+@@ -200,13 +200,13 @@ static int handle_freq(struct nl80211_state *state, struct nl_msg *msg,
+ 
+ COMMAND(set, freq,
+ 	"<freq> [NOHT|HT20|HT40+|HT40-|5MHz|10MHz|80MHz|160MHz]\n"
+-	"<control freq> [5|10|20|40|80|80+80|160] [<center1_freq> [<center2_freq>]]",
++	"<control freq> [5|10|20|40|80|80+80|160|320] [<center1_freq> [<center2_freq>]]",
+ 	NL80211_CMD_SET_WIPHY, 0, CIB_PHY, handle_freq,
+ 	"Set frequency/channel the hardware is using, including HT\n"
+ 	"configuration.");
+ COMMAND(set, freq,
+ 	"<freq> [NOHT|HT20|HT40+|HT40-|5MHz|10MHz|80MHz|160MHz]\n"
+-	"<control freq> [5|10|20|40|80|80+80|160] [<center1_freq> [<center2_freq>]]",
++	"<control freq> [5|10|20|40|80|80+80|160|320] [<center1_freq> [<center2_freq>]]",
+ 	NL80211_CMD_SET_WIPHY, 0, CIB_NETDEV, handle_freq, NULL);
+ 
+ static int handle_chan(struct nl80211_state *state, struct nl_msg *msg,
+diff --git a/util.c b/util.c
+index 8a2ba10..7126ce8 100644
+--- a/util.c
++++ b/util.c
+@@ -471,6 +471,7 @@ enum nl80211_chan_width str_to_bw(const char *str)
+ 		{ .name = "80", .val = NL80211_CHAN_WIDTH_80, },
+ 		{ .name = "80+80", .val = NL80211_CHAN_WIDTH_80P80, },
+ 		{ .name = "160", .val = NL80211_CHAN_WIDTH_160, },
++		{ .name = "320", .val = NL80211_CHAN_WIDTH_320, },
+ 	};
+ 	unsigned int i;
+ 
+@@ -1690,11 +1691,11 @@ int get_cf1(const struct chanmode *chanmode, unsigned long freq)
+ {
+ 	unsigned int cf1 = freq, j;
+ 	unsigned int bw80[] = { 5180, 5260, 5500, 5580, 5660, 5745,
+-				5955, 6035, 6115, 6195, 6275, 6355,
+-				6435, 6515, 6595, 6675, 6755, 6835,
+-				6195, 6995 };
+-	unsigned int bw160[] = { 5180, 5500, 5955, 6115, 6275, 6435,
+-				  6595, 6755, 6915 };
++				5825, 5955, 6035, 6115, 6195, 6275,
++				6355, 6435, 6515, 6595, 6675, 6755,
++				6835, 6915, 6995 };
++	unsigned int bw160[] = { 5180, 5500, 5745, 5955, 6115, 6275,
++				 6435, 6595, 6755, 6915 };
+ 
+ 	switch (chanmode->width) {
+ 	case NL80211_CHAN_WIDTH_80:
+-- 
+2.18.0
+

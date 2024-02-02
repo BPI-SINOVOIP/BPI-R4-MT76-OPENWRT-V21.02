@@ -1,0 +1,33 @@
+--- a/configure
++++ b/configure
+@@ -856,6 +856,7 @@ enable_rpath
+ with_libiconv_prefix
+ enable_keyring
+ enable_largefile
++enable_libiconv_tiny
+ enable_nls
+ with_libintl_prefix
+ enable_fips
+@@ -1583,6 +1584,7 @@ Optional Features:
+   --disable-keyring       disable kernel keyring support and builtin kernel
+                           keyring token
+   --disable-largefile     omit support for large files
++  --enable-libiconv-tiny  build with libiconv-tiny from OpenWrt
+   --disable-nls           do not use Native Language Support
+   --enable-fips           enable FIPS mode restrictions
+   --enable-pwquality      enable password quality checking using pwquality
+@@ -15038,6 +15040,14 @@ if test "x$enable_largefile" = "xno"; th
+   as_fn_error $? "Building with --disable-largefile is not supported, it can cause data corruption." "$LINENO" 5
+ fi
+ 
++# Check whether --enable-libiconv-tiny was given.
++if test "${enable_libiconv_tiny+set}" = set; then
++  enableval=$enable_libiconv_tiny;
++  if test ".$enableval" = .yes; then
++    LIBS="$LIBS -liconv"
++  fi
++fi
++
+ { $as_echo "$as_me:${as_lineno-$LINENO}: checking for an ANSI C-conforming const" >&5
+ $as_echo_n "checking for an ANSI C-conforming const... " >&6; }
+ if ${ac_cv_c_const+:} false; then :

@@ -1,0 +1,65 @@
+From 66913f29a6f44a588926788f393eb887d2997bfd Mon Sep 17 00:00:00 2001
+From: "sujuan.chen" <sujuan.chen@mediatek.com>
+Date: Wed, 19 Jul 2023 10:55:09 +0800
+Subject: [PATCH 2007/2028] mtk: wifi: mt76: mt7915: wed: find rx token by
+ physical address
+
+The token id in RxDMAD may be incorrect when it is not the last frame due to
+WED HW bug. Lookup correct token id by physical address in sdp0.
+Add len == 0 check to drop garbage frames
+
+Signed-off-by: Peter Chiu <chui-hao.chiu@mediatek.com>
+---
+ dma.c | 27 +++++++++++++++++++++++++--
+ 1 file changed, 25 insertions(+), 2 deletions(-)
+
+diff --git a/dma.c b/dma.c
+index dfce79fa..69333769 100644
+--- a/dma.c
++++ b/dma.c
+@@ -448,9 +448,32 @@ mt76_dma_get_buf(struct mt76_dev *dev, struct mt76_queue *q, int idx,
+ 	mt76_dma_should_drop_buf(drop, ctrl, buf1, desc_info);
+ 
+ 	if (mt76_queue_is_wed_rx(q)) {
++		u32 id, find = 0;
+ 		u32 token = FIELD_GET(MT_DMA_CTL_TOKEN, buf1);
+-		struct mt76_rxwi_cache *r = mt76_rx_token_release(dev, token);
++		struct mt76_rxwi_cache *r;
++
++		if (*more) {
++			spin_lock_bh(&dev->rx_token_lock);
++
++			idr_for_each_entry(&dev->rx_token, r, id) {
++				if (r->dma_addr == le32_to_cpu(desc->buf0)) {
++					find = 1;
++					token = id;
++
++					/* Write correct id back to DMA*/
++					u32p_replace_bits(&buf1, id,
++							  MT_DMA_CTL_TOKEN);
++					WRITE_ONCE(desc->buf1, cpu_to_le32(buf1));
++					break;
++				}
++			}
+ 
++			spin_unlock_bh(&dev->rx_token_lock);
++			if (!find)
++				return NULL;
++		}
++
++		r = mt76_rx_token_release(dev, token);
+ 		if (!r)
+ 			return NULL;
+ 
+@@ -978,7 +1001,7 @@ mt76_dma_rx_process(struct mt76_dev *dev, struct mt76_queue *q, int budget)
+ 		if (!data)
+ 			break;
+ 
+-		if (drop)
++		if (drop || (len == 0))
+ 			goto free_frag;
+ 
+ 		if (q->rx_head)
+-- 
+2.18.0
+

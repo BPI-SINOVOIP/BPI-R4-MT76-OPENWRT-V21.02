@@ -1,0 +1,119 @@
+From f647704869b94f0fba01631043b733edc48c6e74 Mon Sep 17 00:00:00 2001
+From: Evelyn Tsai <evelyn.tsai@mediatek.com>
+Date: Tue, 13 Dec 2022 09:04:49 +0800
+Subject: [PATCH 10/37] mtk: mac80211: fix build error on Linux Kernel 5.4
+
+---
+ include/linux/ieee80211.h          |  8 +++-----
+ net/mac80211/rc80211_minstrel_ht.c |  2 ++
+ net/mac80211/wpa.c                 |  4 ++--
+ net/wireless/nl80211.c             | 12 +++++-------
+ 4 files changed, 12 insertions(+), 14 deletions(-)
+
+diff --git a/include/linux/ieee80211.h b/include/linux/ieee80211.h
+index 4b99809..7aaae32 100644
+--- a/include/linux/ieee80211.h
++++ b/include/linux/ieee80211.h
+@@ -310,11 +310,9 @@ static inline u16 ieee80211_sn_sub(u16 sn1, u16 sn2)
+ struct ieee80211_hdr {
+ 	__le16 frame_control;
+ 	__le16 duration_id;
+-	struct_group(addrs,
+-		u8 addr1[ETH_ALEN];
+-		u8 addr2[ETH_ALEN];
+-		u8 addr3[ETH_ALEN];
+-	);
++	u8 addr1[ETH_ALEN];
++	u8 addr2[ETH_ALEN];
++	u8 addr3[ETH_ALEN];
+ 	__le16 seq_ctrl;
+ 	u8 addr4[ETH_ALEN];
+ } __packed __aligned(2);
+diff --git a/net/mac80211/rc80211_minstrel_ht.c b/net/mac80211/rc80211_minstrel_ht.c
+index 3562903..3768947 100644
+--- a/net/mac80211/rc80211_minstrel_ht.c
++++ b/net/mac80211/rc80211_minstrel_ht.c
+@@ -10,7 +10,9 @@
+ #include <linux/random.h>
+ #include <linux/moduleparam.h>
+ #include <linux/ieee80211.h>
++#if LINUX_VERSION_IS_GEQ(5,10,0)
+ #include <linux/minmax.h>
++#endif
+ #include <net/mac80211.h>
+ #include "rate.h"
+ #include "sta_info.h"
+diff --git a/net/mac80211/wpa.c b/net/mac80211/wpa.c
+index 20f742b..93ec2f3 100644
+--- a/net/mac80211/wpa.c
++++ b/net/mac80211/wpa.c
+@@ -351,7 +351,7 @@ static u8 ccmp_gcmp_aad(struct sk_buff *skb, u8 *aad)
+ 	 * FC | A1 | A2 | A3 | SC | [A4] | [QC] */
+ 	put_unaligned_be16(len_a, &aad[0]);
+ 	put_unaligned(mask_fc, (__le16 *)&aad[2]);
+-	memcpy(&aad[4], &hdr->addrs, 3 * ETH_ALEN);
++	memcpy(&aad[4], &hdr->addr1, 3 * ETH_ALEN);
+ 
+ 	/* Mask Seq#, leave Frag# */
+ 	aad[22] = *((u8 *) &hdr->seq_ctrl) & 0x0f;
+@@ -792,7 +792,7 @@ static void bip_aad(struct sk_buff *skb, u8 *aad)
+ 				IEEE80211_FCTL_MOREDATA);
+ 	put_unaligned(mask_fc, (__le16 *) &aad[0]);
+ 	/* A1 || A2 || A3 */
+-	memcpy(aad + 2, &hdr->addrs, 3 * ETH_ALEN);
++	memcpy(aad + 2, &hdr->addr1, 3 * ETH_ALEN);
+ }
+ 
+ 
+diff --git a/net/wireless/nl80211.c b/net/wireless/nl80211.c
+index 680511a..15e3eeb 100644
+--- a/net/wireless/nl80211.c
++++ b/net/wireless/nl80211.c
+@@ -461,11 +461,6 @@ nl80211_sta_wme_policy[NL80211_STA_WME_MAX + 1] = {
+ 	[NL80211_STA_WME_MAX_SP] = { .type = NLA_U8 },
+ };
+ 
+-static struct netlink_range_validation nl80211_punct_bitmap_range = {
+-	.min = 0,
+-	.max = 0xffff,
+-};
+-
+ static const struct nla_policy nl80211_policy[NUM_NL80211_ATTR] = {
+ 	[0] = { .strict_start_type = NL80211_ATTR_HE_OBSS_PD },
+ 	[NL80211_ATTR_WIPHY] = { .type = NLA_U32 },
+@@ -805,8 +800,7 @@ static const struct nla_policy nl80211_policy[NUM_NL80211_ATTR] = {
+ 	[NL80211_ATTR_MLD_ADDR] = NLA_POLICY_EXACT_LEN(ETH_ALEN),
+ 	[NL80211_ATTR_MLO_SUPPORT] = { .type = NLA_FLAG },
+ 	[NL80211_ATTR_MAX_NUM_AKM_SUITES] = { .type = NLA_REJECT },
+-	[NL80211_ATTR_PUNCT_BITMAP] =
+-		NLA_POLICY_FULL_RANGE(NLA_U32, &nl80211_punct_bitmap_range),
++	[NL80211_ATTR_PUNCT_BITMAP] = NLA_POLICY_RANGE(NLA_U8, 0, 0xffff),
+ 
+ 	[NL80211_ATTR_MAX_HW_TIMESTAMP_PEERS] = { .type = NLA_U16 },
+ 	[NL80211_ATTR_HW_TIMESTAMP_ENABLED] = { .type = NLA_FLAG },
+@@ -16687,9 +16681,11 @@ static const struct genl_ops nl80211_ops[] = {
+ 		/* can be retrieved by unprivileged users */
+ 		.internal_flags = IFLAGS(NL80211_FLAG_NEED_WIPHY),
+ 	},
++#if LINUX_VERSION_IS_GEQ(5,10,0)
+ };
+ 
+ static const struct genl_small_ops nl80211_small_ops[] = {
++#endif
+ 	{
+ 		.cmd = NL80211_CMD_SET_WIPHY,
+ 		.validate = GENL_DONT_VALIDATE_STRICT | GENL_DONT_VALIDATE_DUMP,
+@@ -17534,8 +17530,10 @@ static struct genl_family nl80211_fam __genl_ro_after_init = {
+ 	.module = THIS_MODULE,
+ 	.ops = nl80211_ops,
+ 	.n_ops = ARRAY_SIZE(nl80211_ops),
++#if LINUX_VERSION_IS_GEQ(5,10,0)
+ 	.small_ops = nl80211_small_ops,
+ 	.n_small_ops = ARRAY_SIZE(nl80211_small_ops),
++#endif
+ #if LINUX_VERSION_IS_GEQ(6,1,0)
+ 	.resv_start_op = NL80211_CMD_REMOVE_LINK_STA + 1,
+ #endif
+-- 
+2.18.0
+

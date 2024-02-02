@@ -1,0 +1,36 @@
+From 9a82dbf6c16899eeb6b98178cc6e341f164acfa6 Mon Sep 17 00:00:00 2001
+From: Michael-CY Lee <michael-cy.lee@mediatek.com>
+Date: Wed, 23 Aug 2023 17:44:50 +0800
+Subject: [PATCH 34/54] mtk: hostapd: update op_class when AP channel switching
+
+Signed-off-by: Michael Lee <michael-cy.lee@mediatek.com>
+---
+ src/ap/drv_callbacks.c | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/src/ap/drv_callbacks.c b/src/ap/drv_callbacks.c
+index e7f1f19ce..f749b33dc 100644
+--- a/src/ap/drv_callbacks.c
++++ b/src/ap/drv_callbacks.c
+@@ -1041,7 +1041,7 @@ void hostapd_event_ch_switch(struct hostapd_data *hapd, int freq, int ht,
+ {
+ #ifdef NEED_AP_MLME
+ 	int channel, chwidth, is_dfs0, is_dfs;
+-	u8 seg0_idx = 0, seg1_idx = 0;
++	u8 seg0_idx = 0, seg1_idx = 0, op_class, chan_no;
+ 	size_t i;
+ 
+ 	hostapd_logger(hapd, NULL, HOSTAPD_MODULE_IEEE80211,
+@@ -1169,6 +1169,9 @@ void hostapd_event_ch_switch(struct hostapd_data *hapd, int freq, int ht,
+ 		hapd->iconf->ht_capab &= ~HT_CAP_INFO_SUPP_CHANNEL_WIDTH_SET;
+ 
+ 	hapd->iconf->secondary_channel = offset;
++	ieee80211_freq_to_channel_ext(freq, offset, chwidth,
++				      &op_class, &chan_no);
++	hapd->iconf->op_class = op_class;
+ 	hostapd_set_oper_chwidth(hapd->iconf, chwidth);
+ 	hostapd_set_oper_centr_freq_seg0_idx(hapd->iconf, seg0_idx);
+ 	hostapd_set_oper_centr_freq_seg1_idx(hapd->iconf, seg1_idx);
+-- 
+2.18.0
+

@@ -1,0 +1,490 @@
+From aafd916aa93ef1400c25ea0783a7082f867cda5b Mon Sep 17 00:00:00 2001
+From: StanleyYP Wang <StanleyYP.Wang@mediatek.com>
+Date: Wed, 22 Mar 2023 11:19:52 +0800
+Subject: [PATCH 1011/1044] mtk: wifi: mt76: testmode: add testmode ZWDFS
+ verification support
+
+Signed-off-by: StanleyYP Wang <StanleyYP.Wang@mediatek.com>
+---
+ mt76.h            |   8 ++
+ mt7996/mt7996.h   |   1 +
+ mt7996/testmode.c | 248 ++++++++++++++++++++++++++++++++++++++++++++--
+ mt7996/testmode.h |  44 ++++++++
+ testmode.c        |  22 +++-
+ tools/fields.c    |  15 +++
+ 6 files changed, 326 insertions(+), 12 deletions(-)
+
+diff --git a/mt76.h b/mt76.h
+index 1eb5a52b..46fbc87e 100644
+--- a/mt76.h
++++ b/mt76.h
+@@ -777,6 +777,14 @@ struct mt76_testmode_data {
+ 	} cfg;
+ 
+ 	u8 aid;
++
++	u8 offchan_ch;
++	u8 offchan_center_ch;
++	u8 offchan_bw;
++
++	u8 ipi_threshold;
++	u32 ipi_period;
++	u8 ipi_reset;
+ };
+ 
+ struct mt76_vif {
+diff --git a/mt7996/mt7996.h b/mt7996/mt7996.h
+index 69db055d..2daca449 100644
+--- a/mt7996/mt7996.h
++++ b/mt7996/mt7996.h
+@@ -289,6 +289,7 @@ struct mt7996_phy {
+ 
+ 	struct mt76_mib_stats mib;
+ 	struct mt76_channel_state state_ts;
++	struct delayed_work ipi_work;
+ 
+ 	bool has_aux_rx;
+ 
+diff --git a/mt7996/testmode.c b/mt7996/testmode.c
+index 36be0ff8..26ae5827 100644
+--- a/mt7996/testmode.c
++++ b/mt7996/testmode.c
+@@ -17,6 +17,12 @@ enum {
+ 	TM_CHANGED_TX_LENGTH,
+ 	TM_CHANGED_TX_TIME,
+ 	TM_CHANGED_CFG,
++	TM_CHANGED_OFF_CHAN_CH,
++	TM_CHANGED_OFF_CHAN_CENTER_CH,
++	TM_CHANGED_OFF_CHAN_BW,
++	TM_CHANGED_IPI_THRESHOLD,
++	TM_CHANGED_IPI_PERIOD,
++	TM_CHANGED_IPI_RESET,
+ 
+ 	/* must be last */
+ 	NUM_TM_CHANGED
+@@ -29,20 +35,31 @@ static const u8 tm_change_map[] = {
+ 	[TM_CHANGED_TX_LENGTH] = MT76_TM_ATTR_TX_LENGTH,
+ 	[TM_CHANGED_TX_TIME] = MT76_TM_ATTR_TX_TIME,
+ 	[TM_CHANGED_CFG] = MT76_TM_ATTR_CFG,
++	[TM_CHANGED_OFF_CHAN_CH] = MT76_TM_ATTR_OFF_CH_SCAN_CH,
++	[TM_CHANGED_OFF_CHAN_CENTER_CH] = MT76_TM_ATTR_OFF_CH_SCAN_CENTER_CH,
++	[TM_CHANGED_OFF_CHAN_BW] = MT76_TM_ATTR_OFF_CH_SCAN_BW,
++	[TM_CHANGED_IPI_THRESHOLD] = MT76_TM_ATTR_IPI_THRESHOLD,
++	[TM_CHANGED_IPI_PERIOD] = MT76_TM_ATTR_IPI_PERIOD,
++	[TM_CHANGED_IPI_RESET] = MT76_TM_ATTR_IPI_RESET,
+ };
+ 
+-static u8 mt7996_tm_bw_mapping(enum nl80211_chan_width width, enum bw_mapping_method method)
++static void mt7996_tm_ipi_work(struct work_struct *work);
++
++static u32 mt7996_tm_bw_mapping(enum nl80211_chan_width width, enum bw_mapping_method method)
+ {
+-	static const u8 width_to_bw[][NUM_BW_MAP] = {
+-		[NL80211_CHAN_WIDTH_40] = {FW_CDBW_40MHZ, TM_CBW_40MHZ},
+-		[NL80211_CHAN_WIDTH_80] = {FW_CDBW_80MHZ, TM_CBW_80MHZ},
+-		[NL80211_CHAN_WIDTH_80P80] = {FW_CDBW_8080MHZ, TM_CBW_8080MHZ},
+-		[NL80211_CHAN_WIDTH_160] = {FW_CDBW_160MHZ, TM_CBW_160MHZ},
+-		[NL80211_CHAN_WIDTH_5] = {FW_CDBW_5MHZ, TM_CBW_5MHZ},
+-		[NL80211_CHAN_WIDTH_10] = {FW_CDBW_10MHZ, TM_CBW_10MHZ},
+-		[NL80211_CHAN_WIDTH_20] = {FW_CDBW_20MHZ, TM_CBW_20MHZ},
+-		[NL80211_CHAN_WIDTH_20_NOHT] = {FW_CDBW_20MHZ, TM_CBW_20MHZ},
+-		[NL80211_CHAN_WIDTH_320] = {FW_CDBW_320MHZ, TM_CBW_320MHZ},
++	static const u32 width_to_bw[][NUM_BW_MAP] = {
++		[NL80211_CHAN_WIDTH_40] = {FW_CDBW_40MHZ, TM_CBW_40MHZ, 40,
++					   FIRST_CONTROL_CHAN_BITMAP_BW40},
++		[NL80211_CHAN_WIDTH_80] = {FW_CDBW_80MHZ, TM_CBW_80MHZ, 80,
++					   FIRST_CONTROL_CHAN_BITMAP_BW80},
++		[NL80211_CHAN_WIDTH_80P80] = {FW_CDBW_8080MHZ, TM_CBW_8080MHZ, 80, 0x0},
++		[NL80211_CHAN_WIDTH_160] = {FW_CDBW_160MHZ, TM_CBW_160MHZ, 160,
++					    FIRST_CONTROL_CHAN_BITMAP_BW160},
++		[NL80211_CHAN_WIDTH_5] = {FW_CDBW_5MHZ, TM_CBW_5MHZ, 5, 0x0},
++		[NL80211_CHAN_WIDTH_10] = {FW_CDBW_10MHZ, TM_CBW_10MHZ, 10, 0x0},
++		[NL80211_CHAN_WIDTH_20] = {FW_CDBW_20MHZ, TM_CBW_20MHZ, 20, 0x0},
++		[NL80211_CHAN_WIDTH_20_NOHT] = {FW_CDBW_20MHZ, TM_CBW_20MHZ, 20, 0x0},
++		[NL80211_CHAN_WIDTH_320] = {FW_CDBW_320MHZ, TM_CBW_320MHZ, 320, 0x0},
+ 	};
+ 
+ 	if (width >= ARRAY_SIZE(width_to_bw))
+@@ -217,6 +234,9 @@ mt7996_tm_init(struct mt7996_phy *phy, bool en)
+ 
+ 	/* use firmware counter for RX stats */
+ 	phy->mt76->test.flag |= MT_TM_FW_RX_COUNT;
++
++	if (en)
++		INIT_DELAYED_WORK(&phy->ipi_work, mt7996_tm_ipi_work);
+ }
+ 
+ static void
+@@ -829,6 +849,204 @@ void mt7996_tm_rf_test_event(struct mt7996_dev *dev, struct sk_buff *skb)
+ 	}
+ }
+ 
++static u8
++mt7996_tm_get_center_chan(struct mt7996_phy *phy, struct cfg80211_chan_def *chandef)
++{
++	struct mt76_phy *mphy = phy->mt76;
++	const struct ieee80211_channel *chan = mphy->sband_5g.sband.channels;
++	u32 bitmap, i, offset, width_mhz, size = mphy->sband_5g.sband.n_channels;
++	u16 first_control = 0, control_chan = chandef->chan->hw_value;
++
++	bitmap = mt7996_tm_bw_mapping(chandef->width, BW_MAP_NL_TO_CONTROL_BITMAP_5G);
++	if (!bitmap)
++		return control_chan;
++
++	width_mhz = mt7996_tm_bw_mapping(chandef->width, BW_MAP_NL_TO_MHZ);
++	offset = width_mhz / 10 - 2;
++
++	for (i = 0; i < size; i++) {
++		if (!((1 << i) & bitmap))
++			continue;
++
++		if (control_chan >= chan[i].hw_value)
++			first_control = chan[i].hw_value;
++		else
++			break;
++	}
++
++	if (i == size || first_control == 0)
++		return control_chan;
++
++	return first_control + offset;
++}
++
++static int
++mt7996_tm_set_offchan(struct mt7996_phy *phy, bool no_center)
++{
++	struct mt76_phy *mphy = phy->mt76;
++	struct mt7996_dev *dev = phy->dev;
++	struct ieee80211_hw *hw = mphy->hw;
++	struct mt76_testmode_data *td = &phy->mt76->test;
++	struct cfg80211_chan_def chandef = {};
++	struct ieee80211_channel *chan;
++	int ret, freq = ieee80211_channel_to_frequency(td->offchan_ch, NL80211_BAND_5GHZ);
++
++	if (!mphy->cap.has_5ghz || !freq) {
++		ret = -EINVAL;
++		dev_info(dev->mt76.dev, "Failed to set offchan (invalid band or channel)!\n");
++		goto out;
++	}
++
++	chandef.width = td->offchan_bw;
++	chan = ieee80211_get_channel(hw->wiphy, freq);
++	chandef.chan = chan;
++	if (no_center)
++		td->offchan_center_ch = mt7996_tm_get_center_chan(phy, &chandef);
++	chandef.center_freq1 = ieee80211_channel_to_frequency(td->offchan_center_ch,
++							      NL80211_BAND_5GHZ);
++	if (!cfg80211_chandef_valid(&chandef)) {
++		ret = -EINVAL;
++		dev_info(dev->mt76.dev, "Failed to set offchan, chandef is invalid!\n");
++		goto out;
++	}
++
++	memset(&dev->rdd2_chandef, 0, sizeof(struct cfg80211_chan_def));
++
++	ret = mt7996_mcu_rdd_background_enable(phy, &chandef);
++
++	if (ret)
++		goto out;
++
++	dev->rdd2_phy = phy;
++	dev->rdd2_chandef = chandef;
++
++	return 0;
++
++out:
++	td->offchan_ch = 0;
++	td->offchan_center_ch = 0;
++	td->offchan_bw = 0;
++
++	return ret;
++}
++
++static void
++mt7996_tm_ipi_hist_ctrl(struct mt7996_phy *phy, struct mt7996_tm_rdd_ipi_ctrl *data, u8 cmd)
++{
++#define MT_IPI_RESET		0x830a5dfc
++#define MT_IPI_RESET_MASK	BIT(28)
++#define MT_IPI_COUNTER_BASE	0x83041000
++#define MT_IPI_COUNTER(idx)	(MT_IPI_COUNTER_BASE + ((idx) * 4))
++	struct mt7996_dev *dev = phy->dev;
++	bool val;
++	int i;
++
++	if (cmd == RDD_SET_IPI_HIST_RESET) {
++		val = mt76_rr(dev, MT_IPI_RESET) & MT_IPI_RESET_MASK;
++		mt76_rmw_field(dev, MT_IPI_RESET, MT_IPI_RESET_MASK, !val);
++		return;
++	}
++
++	for (i = 0; i < POWER_INDICATE_HIST_MAX; i++)
++		data->ipi_hist_val[i] = mt76_rr(dev, MT_IPI_COUNTER(i));
++}
++
++static void
++mt7996_tm_ipi_work(struct work_struct *work)
++{
++#define PRECISION	100
++	struct mt7996_phy *phy = container_of(work, struct mt7996_phy, ipi_work.work);
++	struct mt7996_dev *dev = phy->dev;
++	struct mt76_testmode_data *td = &phy->mt76->test;
++	struct mt7996_tm_rdd_ipi_ctrl data;
++	u32 ipi_idx, ipi_free_count, ipi_percentage;
++	u32 ipi_hist_count_th = 0, ipi_hist_total_count = 0;
++	u32 self_idle_ratio, ipi_idle_ratio, channel_load;
++	u32 *ipi_hist_data;
++	const char *power_lower_bound, *power_upper_bound;
++	static const char * const ipi_idx_to_power_bound[] = {
++		[RDD_IPI_HIST_0] = "-92",
++		[RDD_IPI_HIST_1] = "-89",
++		[RDD_IPI_HIST_2] = "-86",
++		[RDD_IPI_HIST_3] = "-83",
++		[RDD_IPI_HIST_4] = "-80",
++		[RDD_IPI_HIST_5] = "-75",
++		[RDD_IPI_HIST_6] = "-70",
++		[RDD_IPI_HIST_7] = "-65",
++		[RDD_IPI_HIST_8] = "-60",
++		[RDD_IPI_HIST_9] = "-55",
++		[RDD_IPI_HIST_10] = "inf",
++	};
++
++	memset(&data, 0, sizeof(data));
++	mt7996_tm_ipi_hist_ctrl(phy, &data, RDD_IPI_HIST_ALL_CNT);
++
++	ipi_hist_data = data.ipi_hist_val;
++	for (ipi_idx = 0; ipi_idx < POWER_INDICATE_HIST_MAX; ipi_idx++) {
++		power_lower_bound = ipi_idx ? ipi_idx_to_power_bound[ipi_idx - 1] : "-inf";
++		power_upper_bound = ipi_idx_to_power_bound[ipi_idx];
++
++		dev_info(dev->mt76.dev, "IPI %d (power range: (%s, %s] dBm): ipi count = %d\n",
++			 ipi_idx, power_lower_bound, power_upper_bound, ipi_hist_data[ipi_idx]);
++
++		if (td->ipi_threshold <= ipi_idx && ipi_idx <= RDD_IPI_HIST_10)
++			ipi_hist_count_th += ipi_hist_data[ipi_idx];
++
++		ipi_hist_total_count += ipi_hist_data[ipi_idx];
++	}
++
++	ipi_free_count = ipi_hist_data[RDD_IPI_FREE_RUN_CNT];
++
++	dev_info(dev->mt76.dev, "IPI threshold %d: ipi_hist_count_th = %d, ipi_free_count = %d\n",
++		 td->ipi_threshold, ipi_hist_count_th, ipi_free_count);
++	dev_info(dev->mt76.dev, "TX assert time =  %d [ms]\n", data.tx_assert_time / 1000);
++
++	/* calculate channel load = (self idle ratio - idle ratio) / self idle ratio */
++	if (ipi_hist_count_th >= UINT_MAX / (100 * PRECISION))
++		ipi_percentage = 100 * PRECISION *
++				 (ipi_hist_count_th / (100 * PRECISION)) /
++				 (ipi_free_count / (100 * PRECISION));
++	else
++		ipi_percentage = PRECISION * 100 * ipi_hist_count_th / ipi_free_count;
++
++	ipi_idle_ratio = ((100 * PRECISION) - ipi_percentage) / PRECISION;
++
++	self_idle_ratio = PRECISION * 100 *
++			  (td->ipi_period - (data.tx_assert_time / 1000)) /
++			  td->ipi_period / PRECISION;
++
++	if (self_idle_ratio < ipi_idle_ratio)
++		channel_load = 0;
++	else
++		channel_load = self_idle_ratio - ipi_idle_ratio;
++
++	if (self_idle_ratio <= td->ipi_threshold) {
++		dev_info(dev->mt76.dev, "band[%d]: self idle ratio = %d%%, idle ratio = %d%%\n",
++			 phy->mt76->band_idx, self_idle_ratio, ipi_idle_ratio);
++		return;
++	}
++
++	channel_load = (100 * channel_load) / self_idle_ratio;
++	dev_info(dev->mt76.dev,
++		 "band[%d]: chan load = %d%%, self idle ratio = %d%%, idle ratio = %d%%\n",
++		 phy->mt76->band_idx, channel_load, self_idle_ratio, ipi_idle_ratio);
++}
++
++static int
++mt7996_tm_set_ipi(struct mt7996_phy *phy)
++{
++	struct mt76_testmode_data *td = &phy->mt76->test;
++
++	/* reset IPI CR */
++	mt7996_tm_ipi_hist_ctrl(phy, NULL, RDD_SET_IPI_HIST_RESET);
++
++	cancel_delayed_work(&phy->ipi_work);
++	ieee80211_queue_delayed_work(phy->mt76->hw, &phy->ipi_work,
++				     msecs_to_jiffies(td->ipi_period));
++
++	return 0;
++}
++
+ static void
+ mt7996_tm_update_params(struct mt7996_phy *phy, u32 changed)
+ {
+@@ -860,6 +1078,14 @@ mt7996_tm_update_params(struct mt7996_phy *phy, u32 changed)
+ 
+ 		mt7996_tm_set(dev, func_idx, td->cfg.type);
+ 	}
++	if ((changed & BIT(TM_CHANGED_OFF_CHAN_CH)) &&
++	    (changed & BIT(TM_CHANGED_OFF_CHAN_BW)))
++		mt7996_tm_set_offchan(phy, !(changed & BIT(TM_CHANGED_OFF_CHAN_CENTER_CH)));
++	if ((changed & BIT(TM_CHANGED_IPI_THRESHOLD)) &&
++	    (changed & BIT(TM_CHANGED_IPI_PERIOD)))
++		mt7996_tm_set_ipi(phy);
++	if (changed & BIT(TM_CHANGED_IPI_RESET))
++		mt7996_tm_ipi_hist_ctrl(phy, NULL, RDD_SET_IPI_HIST_RESET);
+ }
+ 
+ static int
+diff --git a/mt7996/testmode.h b/mt7996/testmode.h
+index 9bfb86f2..78662b2e 100644
+--- a/mt7996/testmode.h
++++ b/mt7996/testmode.h
+@@ -27,9 +27,15 @@ enum {
+ 	FW_CDBW_8080MHZ,
+ };
+ 
++#define FIRST_CONTROL_CHAN_BITMAP_BW40		0x5555555
++#define FIRST_CONTROL_CHAN_BITMAP_BW80		0x111111
++#define FIRST_CONTROL_CHAN_BITMAP_BW160		0x100101
++
+ enum bw_mapping_method {
+ 	BW_MAP_NL_TO_FW,
+ 	BW_MAP_NL_TO_TM,
++	BW_MAP_NL_TO_MHZ,
++	BW_MAP_NL_TO_CONTROL_BITMAP_5G,
+ 
+ 	NUM_BW_MAP,
+ };
+@@ -312,4 +318,42 @@ struct mt7996_tm_rx_event {
+ 	};
+ } __packed;
+ 
++enum {
++	RDD_SET_IPI_CR_INIT,		/* CR initialization */
++	RDD_SET_IPI_HIST_RESET,		/* Reset IPI histogram counter */
++	RDD_SET_IDLE_POWER,		/* Idle power info */
++	RDD_SET_IPI_HIST_NUM
++};
++
++enum {
++	RDD_IPI_HIST_0,			/* IPI count for power <= -92 (dBm) */
++	RDD_IPI_HIST_1,			/* IPI count for -92 < power <= -89 (dBm) */
++	RDD_IPI_HIST_2,			/* IPI count for -89 < power <= -86 (dBm) */
++	RDD_IPI_HIST_3,			/* IPI count for -86 < power <= -83 (dBm) */
++	RDD_IPI_HIST_4,			/* IPI count for -83 < power <= -80 (dBm) */
++	RDD_IPI_HIST_5,			/* IPI count for -80 < power <= -75 (dBm) */
++	RDD_IPI_HIST_6,			/* IPI count for -75 < power <= -70 (dBm) */
++	RDD_IPI_HIST_7,			/* IPI count for -70 < power <= -65 (dBm) */
++	RDD_IPI_HIST_8,			/* IPI count for -65 < power <= -60 (dBm) */
++	RDD_IPI_HIST_9,			/* IPI count for -60 < power <= -55 (dBm) */
++	RDD_IPI_HIST_10,		/* IPI count for -55 < power        (dBm) */
++	RDD_IPI_FREE_RUN_CNT,		/* IPI count for counter++ per 8 us */
++	RDD_IPI_HIST_ALL_CNT,		/* Get all IPI */
++	RDD_IPI_HIST_0_TO_10_CNT,	/* Get IPI histogram 0 to 10 */
++	RDD_IPI_HIST_2_TO_10_CNT,	/* Get IPI histogram 2 to 10 */
++	RDD_TX_ASSERT_TIME,		/* Get band 1 TX assert time */
++	RDD_IPI_HIST_NUM
++};
++
++#define POWER_INDICATE_HIST_MAX		RDD_IPI_FREE_RUN_CNT
++#define IPI_HIST_TYPE_NUM		(POWER_INDICATE_HIST_MAX + 1)
++
++struct mt7996_tm_rdd_ipi_ctrl {
++	u8 ipi_hist_idx;
++	u8 band_idx;
++	u8 rsv[2];
++	__le32 ipi_hist_val[IPI_HIST_TYPE_NUM];
++	__le32 tx_assert_time;		/* unit: us */
++} __packed;
++
+ #endif
+diff --git a/testmode.c b/testmode.c
+index 7ed58a77..805ad83c 100644
+--- a/testmode.c
++++ b/testmode.c
+@@ -27,6 +27,13 @@ const struct nla_policy mt76_tm_policy[NUM_MT76_TM_ATTRS] = {
+ 	[MT76_TM_ATTR_TX_TIME] = { .type = NLA_U32 },
+ 	[MT76_TM_ATTR_FREQ_OFFSET] = { .type = NLA_U32 },
+ 	[MT76_TM_ATTR_DRV_DATA] = { .type = NLA_NESTED },
++	[MT76_TM_ATTR_OFF_CH_SCAN_CH] = { .type = NLA_U8 },
++	[MT76_TM_ATTR_OFF_CH_SCAN_CENTER_CH] = { .type = NLA_U8 },
++	[MT76_TM_ATTR_OFF_CH_SCAN_BW] = { .type = NLA_U8 },
++	[MT76_TM_ATTR_OFF_CH_SCAN_PATH] = { .type = NLA_U8 },
++	[MT76_TM_ATTR_IPI_THRESHOLD] = { .type = NLA_U8 },
++	[MT76_TM_ATTR_IPI_PERIOD] = { .type = NLA_U32 },
++	[MT76_TM_ATTR_IPI_RESET] = { .type = NLA_U8 },
+ };
+ EXPORT_SYMBOL_GPL(mt76_tm_policy);
+ 
+@@ -499,6 +506,9 @@ int mt76_testmode_cmd(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
+ 	if (tb[MT76_TM_ATTR_TX_RATE_IDX])
+ 		td->tx_rate_idx = nla_get_u8(tb[MT76_TM_ATTR_TX_RATE_IDX]);
+ 
++	if (tb[MT76_TM_ATTR_IPI_PERIOD])
++		td->ipi_period = nla_get_u32(tb[MT76_TM_ATTR_IPI_PERIOD]);
++
+ 	if (mt76_tm_get_u8(tb[MT76_TM_ATTR_TX_RATE_MODE], &td->tx_rate_mode,
+ 			   0, MT76_TM_TX_MODE_MAX) ||
+ 	    mt76_tm_get_u8(tb[MT76_TM_ATTR_TX_RATE_NSS], &td->tx_rate_nss,
+@@ -514,7 +524,14 @@ int mt76_testmode_cmd(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
+ 			   &td->tx_duty_cycle, 0, 99) ||
+ 	    mt76_tm_get_u8(tb[MT76_TM_ATTR_TX_POWER_CONTROL],
+ 			   &td->tx_power_control, 0, 1) ||
+-	    mt76_tm_get_u8(tb[MT76_TM_ATTR_AID], &td->aid, 0, 16))
++	    mt76_tm_get_u8(tb[MT76_TM_ATTR_AID], &td->aid, 0, 16) ||
++	    mt76_tm_get_u8(tb[MT76_TM_ATTR_OFF_CH_SCAN_CH], &td->offchan_ch, 36, 196) ||
++	    mt76_tm_get_u8(tb[MT76_TM_ATTR_OFF_CH_SCAN_CENTER_CH], &td->offchan_center_ch,
++			   36, 196) ||
++	    mt76_tm_get_u8(tb[MT76_TM_ATTR_OFF_CH_SCAN_BW],
++			   &td->offchan_bw, NL80211_CHAN_WIDTH_20_NOHT, NL80211_CHAN_WIDTH_160) ||
++	    mt76_tm_get_u8(tb[MT76_TM_ATTR_IPI_THRESHOLD], &td->ipi_threshold, 0, 10) ||
++	    mt76_tm_get_u8(tb[MT76_TM_ATTR_IPI_RESET], &td->ipi_reset, 0, 1))
+ 		goto out;
+ 
+ 	if (tb[MT76_TM_ATTR_TX_LENGTH]) {
+@@ -720,6 +737,9 @@ int mt76_testmode_dump(struct ieee80211_hw *hw, struct sk_buff *msg,
+ 	    nla_put_u8(msg, MT76_TM_ATTR_TX_RATE_STBC, td->tx_rate_stbc) ||
+ 	    nla_put_u8(msg, MT76_TM_ATTR_SKU_EN, td->sku_en) ||
+ 	    nla_put_u8(msg, MT76_TM_ATTR_AID, td->aid) ||
++	    nla_put_u8(msg, MT76_TM_ATTR_OFF_CH_SCAN_CH, td->offchan_ch) ||
++	    nla_put_u8(msg, MT76_TM_ATTR_OFF_CH_SCAN_CENTER_CH, td->offchan_center_ch) ||
++	    nla_put_u8(msg, MT76_TM_ATTR_OFF_CH_SCAN_BW, td->offchan_bw) ||
+ 	    (mt76_testmode_param_present(td, MT76_TM_ATTR_TX_LTF) &&
+ 	     nla_put_u8(msg, MT76_TM_ATTR_TX_LTF, td->tx_ltf)) ||
+ 	    (mt76_testmode_param_present(td, MT76_TM_ATTR_TX_ANTENNA) &&
+diff --git a/tools/fields.c b/tools/fields.c
+index b0122763..77696ce7 100644
+--- a/tools/fields.c
++++ b/tools/fields.c
+@@ -35,6 +35,15 @@ static const char * const testmode_tx_mode[] = {
+ 	[MT76_TM_TX_MODE_EHT_MU] = "eht_mu",
+ };
+ 
++static const char * const testmode_offchan_bw[] = {
++	[NL80211_CHAN_WIDTH_20_NOHT] = "NOHT",
++	[NL80211_CHAN_WIDTH_20] = "20",
++	[NL80211_CHAN_WIDTH_40] = "40",
++	[NL80211_CHAN_WIDTH_80] = "80",
++	[NL80211_CHAN_WIDTH_80P80] = "80p80",
++	[NL80211_CHAN_WIDTH_160] = "160",
++};
++
+ static void print_enum(const struct tm_field *field, struct nlattr *attr)
+ {
+ 	unsigned int i = nla_get_u8(attr);
+@@ -390,6 +399,12 @@ static const struct tm_field testdata_fields[NUM_MT76_TM_ATTRS] = {
+ 	FIELD(u8, AID, "aid"),
+ 	FIELD(u8, RU_ALLOC, "ru_alloc"),
+ 	FIELD(u8, RU_IDX, "ru_idx"),
++	FIELD(u8, OFF_CH_SCAN_CH, "offchan_ch"),
++	FIELD(u8, OFF_CH_SCAN_CENTER_CH, "offchan_center_ch"),
++	FIELD_ENUM(OFF_CH_SCAN_BW, "offchan_bw", testmode_offchan_bw),
++	FIELD(u8, IPI_THRESHOLD, "ipi_threshold"),
++	FIELD(u32, IPI_PERIOD, "ipi_period"),
++	FIELD(u8, IPI_RESET, "ipi_reset"),
+ 	FIELD_MAC(MAC_ADDRS, "mac_addrs"),
+ 	FIELD_NESTED_RO(STATS, stats, "",
+ 			.print_extra = print_extra_stats),
+-- 
+2.18.0
+

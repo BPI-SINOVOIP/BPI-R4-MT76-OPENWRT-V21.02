@@ -1,0 +1,168 @@
+From 5daee94e29d5d7a3db5b8c8f03b15aa4a914f85f Mon Sep 17 00:00:00 2001
+From: Michael-CY Lee <michael-cy.lee@mediatek.com>
+Date: Thu, 24 Aug 2023 10:04:15 +0800
+Subject: [PATCH 41/54] mtk: hostapd: refactor the flow to create Wide
+ Bandwidth Channel Switch IE
+
+This patch changes the flow to create Wide Bandwidth Channel Switch IE:
+1. 2 GHz: Wide Bandwidth Channel Switch IE should not present.
+2. 5 GHz: fill the subfields according to VHT operation.
+3. 6 GHz: fill the subfields according to VHT operation and HE operation
+   in HE mode and EHT mode, respectively.
+   This is because the definition of the subfields of Wide Bandwidth
+   Channel Switch IE is ambiguous:
+   1. 802.11ac: the definition of subfields follows VHT operation
+      (IEEE80211-2020 9.4.2.160)
+   2. 802.11ax: the definition of subfields is not specified
+   3. 802.11be: the definition of subfields follows VHT operation in 5
+      GHz and HE operation in 6 GHz (IEEE P802.11be D3.2 9.4.2.159)
+
+To support 320 MHz
+   channel switch, set width to 4
+
+Signed-off-by: Michael-CY Lee <michael-cy.lee@mediatek.com>
+---
+ src/ap/ieee802_11.c | 99 ++++++++++++++++++++++++++++++++++-----------
+ 1 file changed, 76 insertions(+), 23 deletions(-)
+
+diff --git a/src/ap/ieee802_11.c b/src/ap/ieee802_11.c
+index 38fce3e82..d46c5a42b 100644
+--- a/src/ap/ieee802_11.c
++++ b/src/ap/ieee802_11.c
+@@ -7083,57 +7083,110 @@ u8 * hostapd_eid_txpower_envelope(struct hostapd_data *hapd, u8 *eid)
+ 
+ u8 * hostapd_eid_wb_chsw_wrapper(struct hostapd_data *hapd, u8 *eid)
+ {
+-	u8 bw, chan1, chan2 = 0;
+-	int freq1;
++	u8 new_bw_field, ccfs0_chan, ccfs1_chan = 0;
++	int ccfs0_freq = 0, ccfs1_freq = 0;
++	int control_freq, center_freq1, center_freq2, bandwidth;
++	int base_freq, offset;
++	bool is_6ghz, use_he_oper;
+ 
+ 	if (!hapd->cs_freq_params.channel ||
++	    hapd->cs_freq_params.bandwidth == 20 ||
+ 	    (!hapd->cs_freq_params.vht_enabled &&
+ 	     !hapd->cs_freq_params.he_enabled &&
+ 	     !hapd->cs_freq_params.eht_enabled))
+ 		return eid;
+ 
+-	/* bandwidth: 0: 40, 1: 80, 2: 160, 3: 80+80, 4: 320 */
+-	switch (hapd->cs_freq_params.bandwidth) {
++	control_freq = hapd->cs_freq_params.freq;
++	center_freq1 = hapd->cs_freq_params.center_freq1;
++	center_freq2 = hapd->cs_freq_params.center_freq2;
++	bandwidth = hapd->cs_freq_params.bandwidth;
++
++	/* center_freq2 is used if and only if bandwidth is
++	 * 80+80 MHz and phy mode is not EHT
++	 */
++	if (center_freq2 &&
++	    (bandwidth != 80 || hapd->cs_freq_params.eht_enabled))
++		return eid;
++
++	is_6ghz = is_6ghz_freq(control_freq);
++	use_he_oper = is_6ghz && hapd->cs_freq_params.eht_enabled;
++	base_freq = is_6ghz ? 5955 : 5180;
++
++	/* About the subfields of the Wide Bandwidth Channel Switch IE,
++	 * IEEE802.11-2020 9.4.2.160 specifies that the subfields New
++	 * Channel Width, New Channel Center Frequency Segment 0 and New
++	 * Channel Center Frequency Segment 1 have the same definition as
++	 * they are in the VHT operation information field.
++	 * However, the standard does not specify the definition of these
++	 * subfields when it comes to HE phy-mode in 6 GHz.
++	 * And in IEEE P802.11be D3.2 9.4.2.159, it specifies that the
++	 * defition should follow VHT operation in 5 GHz, and follow HE
++	 * oepration in 6 GHz.
++	 * Problem happens here for some HE STAs in 6 GHz, they might still
++	 * use VHT operation to parse these subfields.
++	 *
++	 * Here we follow the new Standard to build the IE, meanwhile we have
++	 * a workaround for HE mode in 6 GHz.
++	 *
++	 * 5 GHz: VHT operation
++	 * HE mode in 6 GHz: VHT operation
++	 * EHT mode in 6 GHz: HE operation
++	 */
++	ccfs0_freq = center_freq1;
++	ccfs1_freq = center_freq2;
++	switch (bandwidth) {
+ 	case 40:
+-		bw = 0;
++		new_bw_field = use_he_oper ? 1 : 0;
+ 		break;
+ 	case 80:
+-		/* check if it's 80+80 */
+-		if (!hapd->cs_freq_params.center_freq2)
+-			bw = 1;
++		if (ccfs1_freq)
++			new_bw_field = use_he_oper ? 3 : 1;
+ 		else
+-			bw = 3;
++			new_bw_field = use_he_oper ? 2 : 1;
+ 		break;
+ 	case 160:
+-		bw = 2;
++		new_bw_field = use_he_oper ? 3 : 1;
++
++		/* ccfs0 is primary 80 MHz
++		 * ccfs1 is center frequency
++		 */
++		offset = (control_freq - base_freq) / 20;
++		ccfs0_freq = control_freq + 30 - (offset & 3) * 20;
++		ccfs1_freq = center_freq1;
+ 		break;
+ 	case 320:
+-		bw = 4;
++		/* TODO switch to bandwidth 320 MHz should be
++		 * indicated by Bandwidth indication IE.
++		 */
++		new_bw_field = 4;
++
++		/* ccfs0 is primary 160 MHz
++		 * ccfs1 is center frequency
++		 */
++		offset = (control_freq - base_freq) / 20;
++		ccfs0_freq = control_freq + 70 - (offset & 7) * 20;
++		ccfs1_freq = center_freq1;
+ 		break;
+ 	default:
+-		/* not valid VHT bandwidth or not in CSA */
++		/* not a valid VHT/HE bandwidth or not in CSA */
+ 		return eid;
+ 	}
+ 
+-	freq1 = hapd->cs_freq_params.center_freq1 ?
+-		hapd->cs_freq_params.center_freq1 :
+-		hapd->cs_freq_params.freq;
+-	if (ieee80211_freq_to_chan(freq1, &chan1) !=
+-	    HOSTAPD_MODE_IEEE80211A)
++	if (ieee80211_freq_to_chan(ccfs0_freq, &ccfs0_chan) !=
++			HOSTAPD_MODE_IEEE80211A)
+ 		return eid;
+ 
+-	if (hapd->cs_freq_params.center_freq2 &&
+-	    ieee80211_freq_to_chan(hapd->cs_freq_params.center_freq2,
+-				   &chan2) != HOSTAPD_MODE_IEEE80211A)
++	if (ccfs1_freq && ieee80211_freq_to_chan(ccfs1_freq, &ccfs1_chan) !=
++			HOSTAPD_MODE_IEEE80211A)
+ 		return eid;
+ 
+ 	*eid++ = WLAN_EID_CHANNEL_SWITCH_WRAPPER;
+ 	*eid++ = 5; /* Length of Channel Switch Wrapper */
+ 	*eid++ = WLAN_EID_WIDE_BW_CHSWITCH;
+ 	*eid++ = 3; /* Length of Wide Bandwidth Channel Switch element */
+-	*eid++ = bw; /* New Channel Width */
+-	*eid++ = chan1; /* New Channel Center Frequency Segment 0 */
+-	*eid++ = chan2; /* New Channel Center Frequency Segment 1 */
++	*eid++ = new_bw_field; /* New Channel Width */
++	*eid++ = ccfs0_chan; /* New Channel Center Frequency Segment 0 */
++	*eid++ = ccfs1_chan; /* New Channel Center Frequency Segment 1 */
+ 
+ 	return eid;
+ }
+-- 
+2.18.0
+

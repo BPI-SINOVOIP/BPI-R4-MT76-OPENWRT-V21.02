@@ -1,0 +1,57 @@
+From 87a3fa3c38e1b840cebe5f3b088a0ff67e5920f0 Mon Sep 17 00:00:00 2001
+From: Peter Chiu <chui-hao.chiu@mediatek.com>
+Date: Thu, 7 Dec 2023 11:17:56 +0800
+Subject: [PATCH 04/25] mtk: wifi: mt76: check txs format before getting skb by
+ pid
+
+The PPDU TxS does not include the error bit so it cannot use to report
+status to mac80211.
+
+Signed-off-by: Peter Chiu <chui-hao.chiu@mediatek.com>
+---
+ mt76_connac3_mac.h | 5 +++++
+ mt7996/mac.c       | 6 ++++--
+ 2 files changed, 9 insertions(+), 2 deletions(-)
+
+diff --git a/mt76_connac3_mac.h b/mt76_connac3_mac.h
+index 83dcd964..8cfd479a 100644
+--- a/mt76_connac3_mac.h
++++ b/mt76_connac3_mac.h
+@@ -18,6 +18,11 @@ enum {
+ 	MT_LMAC_PSMP0,
+ };
+ 
++enum {
++	MT_TXS_MPDU_FMT = 0,
++	MT_TXS_PPDU_FMT = 2,
++};
++
+ #define MT_CT_PARSE_LEN			72
+ #define MT_CT_DMA_BUF_NUM		2
+ 
+diff --git a/mt7996/mac.c b/mt7996/mac.c
+index db06a982..ff7e0753 100644
+--- a/mt7996/mac.c
++++ b/mt7996/mac.c
+@@ -1193,14 +1193,16 @@ mt7996_mac_add_txs_skb(struct mt7996_dev *dev, struct mt76_wcid *wcid,
+ 	struct ieee80211_tx_info *info;
+ 	struct sk_buff_head list;
+ 	struct rate_info rate = {};
+-	struct sk_buff *skb;
++	struct sk_buff *skb = NULL;
+ 	bool cck = false;
+ 	u32 txrate, txs, mode, stbc;
+ 
+ 	txs = le32_to_cpu(txs_data[0]);
+ 
+ 	mt76_tx_status_lock(mdev, &list);
+-	skb = mt76_tx_status_skb_get(mdev, wcid, pid, &list);
++
++	if (le32_get_bits(txs_data[0], MT_TXS0_TXS_FORMAT) == MT_TXS_MPDU_FMT)
++		skb = mt76_tx_status_skb_get(mdev, wcid, pid, &list);
+ 
+ 	if (skb) {
+ 		info = IEEE80211_SKB_CB(skb);
+-- 
+2.18.0
+

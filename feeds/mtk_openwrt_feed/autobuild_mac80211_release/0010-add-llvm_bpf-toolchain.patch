@@ -1,0 +1,134 @@
+diff --git a/target/Makefile b/target/Makefile
+index 7ad26c71..83f9c4b0 100644
+--- a/target/Makefile
++++ b/target/Makefile
+@@ -7,9 +7,14 @@
+ curdir:=target
+ 
+ $(curdir)/subtargets:=install
+-$(curdir)/builddirs:=linux sdk imagebuilder toolchain
++$(curdir)/builddirs:=linux sdk imagebuilder toolchain llvm-bpf
+ $(curdir)/builddirs-default:=linux
+-$(curdir)/builddirs-install:=linux $(if $(CONFIG_SDK),sdk) $(if $(CONFIG_IB),imagebuilder) $(if $(CONFIG_MAKE_TOOLCHAIN),toolchain)
++$(curdir)/builddirs-install:=\
++	linux \
++	$(if $(CONFIG_SDK),sdk) \
++	$(if $(CONFIG_IB),imagebuilder) \
++	$(if $(CONFIG_MAKE_TOOLCHAIN),toolchain) \
++	$(if $(CONFIG_SDK_LLVM_BPF),llvm-bpf)
+ 
+ $(curdir)/sdk/install:=$(curdir)/linux/install
+ $(curdir)/imagebuilder/install:=$(curdir)/linux/install
+diff --git a/toolchain/Config.in b/toolchain/Config.in
+index 6dda9af9..221e25f2 100644
+--- a/toolchain/Config.in
++++ b/toolchain/Config.in
+@@ -37,6 +37,39 @@ menuconfig TARGET_OPTIONS
+ 
+ 		  Most people will answer N.
+ 
++	choice BPF_TOOLCHAIN
++		prompt "BPF toolchain" if DEVEL
++		default BPF_TOOLCHAIN_BUILD_LLVM if BUILDBOT
++		default BPF_TOOLCHAIN_PREBUILT if HAS_PREBUILT_LLVM_TOOLCHAIN
++		default BPF_TOOLCHAIN_NONE
++
++		config BPF_TOOLCHAIN_NONE
++			bool "None"
++
++		config BPF_TOOLCHAIN_PREBUILT
++			bool "Use prebuilt LLVM toolchain"
++			depends on HAS_PREBUILT_LLVM_TOOLCHAIN
++			select USE_LLVM_PREBUILT
++
++		config BPF_TOOLCHAIN_HOST
++			select USE_LLVM_HOST
++			bool "Use host LLVM toolchain"
++
++		config BPF_TOOLCHAIN_BUILD_LLVM
++			select USE_LLVM_BUILD
++			bool "Build LLVM toolchain for eBPF"
++			help
++			  If enabled, a LLVM toolchain for building eBPF binaries will be built.
++			  If this is not enabled, eBPF packages can only be built if the host
++			  has a suitable toolchain
++	endchoice
++
++	config BPF_TOOLCHAIN_HOST_PATH
++		string
++		depends on BPF_TOOLCHAIN_HOST
++		prompt "Host LLVM toolchain path (prefix)" if DEVEL
++		default "/usr/local/opt/llvm" if HOST_OS_MACOS
++		default ""
+ 
+ menuconfig EXTERNAL_TOOLCHAIN
+ 	bool
+@@ -259,6 +292,26 @@ config GDB
+ 	help
+ 	  Enable if you want to build the gdb.
+ 
++config HAS_BPF_TOOLCHAIN
++	bool
++
++config HAS_PREBUILT_LLVM_TOOLCHAIN
++	def_bool $(shell, [ -f llvm-bpf/.llvm-version ] && echo y || echo n)
++
++config USE_LLVM_HOST
++	select HAS_BPF_TOOLCHAIN
++	bool
++
++config USE_LLVM_PREBUILT
++	select HAS_BPF_TOOLCHAIN
++	default y if !DEVEL && !BUILDBOT && HAS_PREBUILT_LLVM_TOOLCHAIN
++	bool
++
++config USE_LLVM_BUILD
++	default y if !DEVEL && BUILDBOT
++	select HAS_BPF_TOOLCHAIN
++	bool
++
+ config USE_GLIBC
+ 	default y if !TOOLCHAINOPTS && !EXTERNAL_TOOLCHAIN && !NATIVE_TOOLCHAIN && (arc)
+ 	bool
+diff --git a/tools/Makefile b/tools/Makefile
+index 29309ec4..84f984dd 100644
+--- a/tools/Makefile
++++ b/tools/Makefile
+@@ -37,6 +37,7 @@ tools-$(CONFIG_TARGET_mxs) += elftosb sdimage
+ tools-$(CONFIG_TARGET_tegra) += cbootimage cbootimage-configs
+ tools-$(CONFIG_USES_MINOR) += kernel2minor
+ tools-$(CONFIG_USE_SPARSE) += sparse
++tools-$(CONFIG_USE_LLVM_BUILD) += llvm-bpf
+ tools-y += openssl
+ tools-y += aesgcm
+ 
+@@ -59,6 +60,7 @@ $(curdir)/libelf/compile := $(curdir)/libtool/compile
+ $(curdir)/libressl/compile := $(curdir)/pkgconf/compile
+ $(curdir)/libtool/compile := $(curdir)/m4/compile $(curdir)/autoconf/compile $(curdir)/automake/compile $(curdir)/missing-macros/compile
+ $(curdir)/lzma-old/compile := $(curdir)/zlib/compile
++$(curdir)/llvm-bpf/compile := $(curdir)/cmake/compile
+ $(curdir)/make-ext4fs/compile := $(curdir)/zlib/compile
+ $(curdir)/missing-macros/compile := $(curdir)/autoconf/compile
+ $(curdir)/mkimage/compile += $(curdir)/libressl/compile
+diff --git a/tools/llvm-bpf/Makefile b/tools/llvm-bpf/Makefile
+index 527b3578..53b7347a 100644
+--- a/tools/llvm-bpf/Makefile
++++ b/tools/llvm-bpf/Makefile
+@@ -26,7 +26,7 @@ include $(INCLUDE_DIR)/cmake.mk
+ 
+ LLVM_BPF_PREFIX = llvm-bpf-$(PKG_VERSION).$(HOST_OS)-$(HOST_ARCH)
+ 
+-CMAKE_HOST_INSTALL_PREFIX = $(STAGING_DIR_HOST)/$(LLVM_BPF_PREFIX)
++HOST_BUILD_PREFIX = $(STAGING_DIR_HOST)/$(LLVM_BPF_PREFIX)
+ 
+ CMAKE_HOST_OPTIONS += \
+ 	-DLLVM_ENABLE_BINDINGS=OFF \
+@@ -46,7 +46,7 @@ define Host/Install
+ 	$(Host/Install/Default)
+ 	ln -s $(LLVM_BPF_PREFIX) $(STAGING_DIR_HOST)/llvm-bpf
+ 	STRIP_KMOD= PATCHELF= STRIP=strip $(SCRIPT_DIR)/rstrip.sh $(STAGING_DIR_HOST)/llvm-bpf
+-	echo "$(PKG_VERSION)" > $(CMAKE_HOST_INSTALL_PREFIX)/.llvm-version
++	echo "$(PKG_VERSION)" > $(HOST_BUILD_PREFIX)/.llvm-version
+ endef
+ 
+ define Host/Uninstall

@@ -1,0 +1,12 @@
+diff --git a/package/network/services/hostapd/files/hostapd.uc b/package/network/services/hostapd/files/hostapd.uc
+index 384c5c2..43637ac 100644
+--- a/package/network/services/hostapd/files/hostapd.uc
++++ b/package/network/services/hostapd/files/hostapd.uc
+@@ -72,7 +72,7 @@ function iface_freq_info(iface, config, params)
+ 			continue;
+ 		}
+ 
+-		let val = match(line, /^(vht_oper_chwidth|he_oper_chwidth)=(\d+)/);
++		let val = match(line, /^(vht_oper_chwidth|he_oper_chwidth|eht_oper_chwidth)=(\d+)/);
+ 		if (!val)
+ 			continue;

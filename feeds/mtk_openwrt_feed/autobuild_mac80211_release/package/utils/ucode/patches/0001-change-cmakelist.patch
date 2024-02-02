@@ -1,0 +1,21 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index ade8aac..c8ae7b7 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -28,13 +28,10 @@ find_library(libuci NAMES uci)
+ find_library(libubox NAMES ubox)
+ find_library(libubus NAMES ubus)
+ find_library(libblobmsg_json NAMES blobmsg_json)
++find_library(libnl_tiny NAMES nl-tiny)
+ 
+-if(LINUX)
+-  find_library(libnl_tiny NAMES nl-tiny)
+-
+-  if(libnl_tiny AND libubox)
+-    set(DEFAULT_NL_SUPPORT ON)
+-  endif()
++if(libnl_tiny AND libubox)
++  set(DEFAULT_NL_SUPPORT ON)
+ endif()
+ 
+ if(libuci AND libubox)

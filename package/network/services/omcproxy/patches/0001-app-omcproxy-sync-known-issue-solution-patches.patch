@@ -1,0 +1,44 @@
+From d7a13278cf212b4b64cd9b7b6939e12e69eda66e Mon Sep 17 00:00:00 2001
+From: Evelyn Tsai <evelyn.tsai@mediatek.com>
+Date: Tue, 29 Aug 2023 05:53:23 +0800
+Subject: [PATCH] app: omcproxy: sync known issue solution patches
+
+Fix typo: https://github.com/openwrt/omcproxy/pull/9/commits/383b7df322d6b3270aa1dbbc0e64218f1ab085a6
+2 proxies SIGSEGV error: https://github.com/openwrt/omcproxy/issues/2
+---
+ src/groups.c | 4 ++--
+ src/proxy.c  | 2 +-
+ 2 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/src/groups.c b/src/groups.c
+index 38fa914..d1e7a5a 100644
+--- a/src/groups.c
++++ b/src/groups.c
+@@ -183,9 +183,9 @@ void groups_init(struct groups *groups)
+ 	avl_init(&groups->groups, compare_groups, false, NULL);
+ 	groups->timer.cb = expire_groups;
+ 
+-	groups_update_config(groups, false, OMGP_TIME_PER_SECOND / 10,
++	groups_update_config(groups, false, OMGP_TIME_PER_SECOND * 10,
+ 			125 * OMGP_TIME_PER_SECOND, 2);
+-	groups_update_config(groups, true, OMGP_TIME_PER_SECOND / 10,
++	groups_update_config(groups, true, OMGP_TIME_PER_SECOND * 10,
+ 				125 * OMGP_TIME_PER_SECOND, 2);
+ }
+ 
+diff --git a/src/proxy.c b/src/proxy.c
+index 67c91a7..8114763 100644
+--- a/src/proxy.c
++++ b/src/proxy.c
+@@ -126,7 +126,7 @@ int proxy_set(int uplink, const int downlinks[], size_t downlinks_cnt, enum prox
+ {
+ 	struct proxy *proxy = NULL, *p;
+ 	list_for_each_entry(p, &proxies, head)
+-		if (proxy->ifindex == uplink)
++		if (p->ifindex == uplink)
+ 			proxy = p;
+ 
+ 	if (proxy && (downlinks_cnt == 0 ||
+-- 
+2.18.0
+

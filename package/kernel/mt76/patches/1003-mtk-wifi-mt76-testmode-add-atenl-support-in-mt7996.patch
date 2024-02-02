@@ -1,0 +1,49 @@
+From f1c4924fab3b775e09aa413dc300e478864ee76a Mon Sep 17 00:00:00 2001
+From: StanleyYP Wang <StanleyYP.Wang@mediatek.com>
+Date: Wed, 28 Dec 2022 22:24:25 +0800
+Subject: [PATCH 1003/1044] mtk: wifi: mt76: testmode: add atenl support in
+ mt7996
+
+Signed-off-by: StanleyYP Wang <StanleyYP.Wang@mediatek.com>
+---
+ testmode.c | 3 ++-
+ testmode.h | 2 ++
+ 2 files changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/testmode.c b/testmode.c
+index 4644dace..5c93aa6a 100644
+--- a/testmode.c
++++ b/testmode.c
+@@ -613,7 +613,8 @@ int mt76_testmode_dump(struct ieee80211_hw *hw, struct sk_buff *msg,
+ 
+ 	if (dev->test_mtd.name &&
+ 	    (nla_put_string(msg, MT76_TM_ATTR_MTD_PART, dev->test_mtd.name) ||
+-	     nla_put_u32(msg, MT76_TM_ATTR_MTD_OFFSET, dev->test_mtd.offset)))
++	     nla_put_u32(msg, MT76_TM_ATTR_MTD_OFFSET, dev->test_mtd.offset) ||
++	     nla_put_u8(msg, MT76_TM_ATTR_BAND_IDX, phy->band_idx)))
+ 		goto out;
+ 
+ 	if (nla_put_u32(msg, MT76_TM_ATTR_TX_COUNT, td->tx_count) ||
+diff --git a/testmode.h b/testmode.h
+index 5e2792d8..a40cd74b 100644
+--- a/testmode.h
++++ b/testmode.h
+@@ -17,6 +17,7 @@
+  *
+  * @MT76_TM_ATTR_MTD_PART: mtd partition used for eeprom data (string)
+  * @MT76_TM_ATTR_MTD_OFFSET: offset of eeprom data within the partition (u32)
++ * @MT76_TM_ATTR_BAND_IDX: band idx of the chip (u8)
+  *
+  * @MT76_TM_ATTR_TX_COUNT: configured number of frames to send when setting
+  *	state to MT76_TM_STATE_TX_FRAMES (u32)
+@@ -56,6 +57,7 @@ enum mt76_testmode_attr {
+ 
+ 	MT76_TM_ATTR_MTD_PART,
+ 	MT76_TM_ATTR_MTD_OFFSET,
++	MT76_TM_ATTR_BAND_IDX,
+ 
+ 	MT76_TM_ATTR_TX_COUNT,
+ 	MT76_TM_ATTR_TX_LENGTH,
+-- 
+2.18.0
+

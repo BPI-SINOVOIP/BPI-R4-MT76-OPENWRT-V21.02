@@ -1,0 +1,83 @@
+diff --git a/package/utils/busybox/Config-defaults.in b/package/utils/busybox/Config-defaults.in
+index 168c73b..377c15f 100644
+--- a/package/utils/busybox/Config-defaults.in
++++ b/package/utils/busybox/Config-defaults.in
+@@ -1606,10 +1606,10 @@ config BUSYBOX_DEFAULT_LOSETUP
+ 	default n
+ config BUSYBOX_DEFAULT_LSPCI
+ 	bool
+-	default n
++	default y
+ config BUSYBOX_DEFAULT_LSUSB
+ 	bool
+-	default n
++	default y
+ config BUSYBOX_DEFAULT_MDEV
+ 	bool
+ 	default n
+@@ -2519,28 +2519,28 @@ config BUSYBOX_DEFAULT_UDPSVD
+ 	default n
+ config BUSYBOX_DEFAULT_TELNET
+ 	bool
+-	default n
++	default y
+ config BUSYBOX_DEFAULT_FEATURE_TELNET_TTYPE
+ 	bool
+-	default n
++	default y
+ config BUSYBOX_DEFAULT_FEATURE_TELNET_AUTOLOGIN
+ 	bool
+-	default n
++	default y
+ config BUSYBOX_DEFAULT_FEATURE_TELNET_WIDTH
+ 	bool
+ 	default n
+ config BUSYBOX_DEFAULT_TELNETD
+ 	bool
+-	default n
++	default y
+ config BUSYBOX_DEFAULT_FEATURE_TELNETD_STANDALONE
+ 	bool
+-	default n
++	default y
+ config BUSYBOX_DEFAULT_FEATURE_TELNETD_INETD_WAIT
+ 	bool
+ 	default n
+ config BUSYBOX_DEFAULT_TFTP
+ 	bool
+-	default n
++	default y
+ config BUSYBOX_DEFAULT_FEATURE_TFTP_PROGRESS_BAR
+ 	bool
+ 	default n
+@@ -2552,10 +2552,10 @@ config BUSYBOX_DEFAULT_TFTPD
+ 	default n
+ config BUSYBOX_DEFAULT_FEATURE_TFTP_GET
+ 	bool
+-	default n
++	default y
+ config BUSYBOX_DEFAULT_FEATURE_TFTP_PUT
+ 	bool
+-	default n
++	default y
+ config BUSYBOX_DEFAULT_FEATURE_TFTP_BLOCKSIZE
+ 	bool
+ 	default n
+@@ -2585,7 +2585,7 @@ config BUSYBOX_DEFAULT_FEATURE_TUNCTL_UG
+ 	default n
+ config BUSYBOX_DEFAULT_VCONFIG
+ 	bool
+-	default n
++	default y
+ config BUSYBOX_DEFAULT_WGET
+ 	bool
+ 	default n
+@@ -2729,7 +2729,7 @@ config BUSYBOX_DEFAULT_LSOF
+ 	default n
+ config BUSYBOX_DEFAULT_MPSTAT
+ 	bool
+-	default n
++	default y
+ config BUSYBOX_DEFAULT_NMETER
+ 	bool
+ 	default n

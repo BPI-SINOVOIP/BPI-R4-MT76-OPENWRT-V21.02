@@ -1,0 +1,21 @@
+Source-Makefile: feeds/mtk_openwrt_feed/feed/libkcapi/Makefile
+
+Package: libkcapi
+Submenu: FIPS
+Version: 1.4.0-1.4.0
+Depends: +libc +USE_GLIBC:librt +USE_GLIBC:libpthread 
+Conflicts: 
+Menu-Depends: 
+Provides: 
+Section: Utilities
+Category: Utilities
+Repository: base
+Title: libkcapi
+Maintainer: 
+Source: libkcapi-1.4.0.tar.gz
+Type: ipkg
+Description:   Libkcapi allow user-space to access the Linux kernel crypto API.
+
+@@
+
+

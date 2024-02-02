@@ -1,0 +1,379 @@
+From 1f6dd2ec077acc13bc87b8f518a4d96d400786a6 Mon Sep 17 00:00:00 2001
+From: mtk27745 <rex.lu@mediatek.com>
+Date: Thu, 8 Jun 2023 20:21:04 +0800
+Subject: [PATCH 1019/1044] mtk: wifi: mt76: mt7996: add vendor subcmd EDCCA
+ ctrl enable
+
+---
+ mt7996/mcu.h     |   2 +
+ mt7996/mt7996.h  |  11 ++++
+ mt7996/mtk_mcu.c |  87 +++++++++++++++++++++++++++++++
+ mt7996/mtk_mcu.h |  15 ++++++
+ mt7996/vendor.c  | 132 +++++++++++++++++++++++++++++++++++++++++++++++
+ mt7996/vendor.h  |  33 ++++++++++++
+ 6 files changed, 280 insertions(+)
+
+diff --git a/mt7996/mcu.h b/mt7996/mcu.h
+index 35f757dc..34fdfb26 100644
+--- a/mt7996/mcu.h
++++ b/mt7996/mcu.h
+@@ -845,6 +845,8 @@ mt7996_get_power_bound(struct mt7996_phy *phy, s8 txpower)
+ 
+ enum {
+ 	UNI_BAND_CONFIG_RADIO_ENABLE,
++	UNI_BAND_CONFIG_EDCCA_ENABLE = 0x05,
++	UNI_BAND_CONFIG_EDCCA_THRESHOLD = 0x06,
+ 	UNI_BAND_CONFIG_RTS_THRESHOLD = 0x08,
+ };
+ 
+diff --git a/mt7996/mt7996.h b/mt7996/mt7996.h
+index 7ca9d57e..cfa50bfe 100644
+--- a/mt7996/mt7996.h
++++ b/mt7996/mt7996.h
+@@ -786,6 +786,17 @@ int mt7996_vendor_amnt_sta_remove(struct mt7996_phy *phy,
+ 				  struct ieee80211_sta *sta);
+ #endif
+ 
++int mt7996_mcu_edcca_enable(struct mt7996_phy *phy, bool enable);
++int mt7996_mcu_edcca_threshold_ctrl(struct mt7996_phy *phy, u8 *value, bool set);
++
++enum edcca_bw_id {
++	EDCCA_BW_20 = 0,
++	EDCCA_BW_40,
++	EDCCA_BW_80,
++	EDCCA_BW_160,
++	EDCCA_MAX_BW_NUM,
++};
++
+ #ifdef CONFIG_MTK_DEBUG
+ int mt7996_mtk_init_debugfs(struct mt7996_phy *phy, struct dentry *dir);
+ int mt7996_mcu_muru_dbg_info(struct mt7996_dev *dev, u16 item, u8 val);
+diff --git a/mt7996/mtk_mcu.c b/mt7996/mtk_mcu.c
+index e56ddd8f..5c54d02c 100644
+--- a/mt7996/mtk_mcu.c
++++ b/mt7996/mtk_mcu.c
+@@ -59,4 +59,91 @@ int mt7996_mcu_muru_dbg_info(struct mt7996_dev *dev, u16 item, u8 val)
+ 	return mt76_mcu_send_msg(&dev->mt76, MCU_WM_UNI_CMD(MURU), &req,
+ 				 sizeof(req), true);
+ }
++
++int mt7996_mcu_edcca_enable(struct mt7996_phy *phy, bool enable)
++{
++	struct mt7996_dev *dev = phy->dev;
++	struct cfg80211_chan_def *chandef = &phy->mt76->chandef;
++	enum nl80211_band band = chandef->chan->band;
++	struct {
++		u8 band_idx;
++		u8 _rsv[3];
++
++		__le16 tag;
++		__le16 len;
++		u8 enable;
++		u8 std;
++		u8 _rsv2[2];
++	} __packed req = {
++		.band_idx = phy->mt76->band_idx,
++		.tag = cpu_to_le16(UNI_BAND_CONFIG_EDCCA_ENABLE),
++		.len = cpu_to_le16(sizeof(req) - 4),
++		.enable = enable,
++		.std = EDCCA_DEFAULT,
++	};
++
++	switch (dev->mt76.region) {
++	case NL80211_DFS_JP:
++		req.std = EDCCA_JAPAN;
++		break;
++	case NL80211_DFS_FCC:
++		if (band == NL80211_BAND_6GHZ)
++			req.std = EDCCA_FCC;
++		break;
++	case NL80211_DFS_ETSI:
++		if (band == NL80211_BAND_6GHZ)
++			req.std = EDCCA_ETSI;
++		break;
++	default:
++		break;
++	}
++
++	return mt76_mcu_send_msg(&phy->dev->mt76, MCU_WM_UNI_CMD(BAND_CONFIG),
++				 &req, sizeof(req), true);
++}
++
++int mt7996_mcu_edcca_threshold_ctrl(struct mt7996_phy *phy, u8 *value, bool set)
++{
++	struct {
++		u8 band_idx;
++		u8 _rsv[3];
++
++		__le16 tag;
++		__le16 len;
++		u8 threshold[4];
++		bool init;
++	} __packed *res, req = {
++		.band_idx = phy->mt76->band_idx,
++		.tag = cpu_to_le16(UNI_BAND_CONFIG_EDCCA_THRESHOLD),
++		.len = cpu_to_le16(sizeof(req) - 4),
++		.init = false,
++	};
++	struct sk_buff *skb;
++	int ret;
++	int i;
++
++	for (i = 0; i < EDCCA_MAX_BW_NUM; i++)
++		req.threshold[i] = value[i];
++
++	if (set)
++		return mt76_mcu_send_msg(&phy->dev->mt76, MCU_WM_UNI_CMD(BAND_CONFIG),
++					 &req, sizeof(req), true);
++
++	ret = mt76_mcu_send_and_get_msg(&phy->dev->mt76,
++					MCU_WM_UNI_CMD_QUERY(BAND_CONFIG),
++					&req, sizeof(req), true, &skb);
++
++	if (ret)
++		return ret;
++
++	res = (void *)skb->data;
++
++	for (i = 0; i < EDCCA_MAX_BW_NUM; i++)
++		value[i] = res->threshold[i];
++
++	dev_kfree_skb(skb);
++
++	return 0;
++}
++
+ #endif
+diff --git a/mt7996/mtk_mcu.h b/mt7996/mtk_mcu.h
+index c30418ca..36a58ad6 100644
+--- a/mt7996/mtk_mcu.h
++++ b/mt7996/mtk_mcu.h
+@@ -106,6 +106,21 @@ enum txpower_event {
+ 	UNI_TXPOWER_PHY_RATE_INFO = 5,
+ };
+ 
++enum {
++	EDCCA_CTRL_SET_EN = 0,
++	EDCCA_CTRL_SET_THRES,
++	EDCCA_CTRL_GET_EN,
++	EDCCA_CTRL_GET_THRES,
++	EDCCA_CTRL_NUM,
++};
++
++enum {
++	EDCCA_DEFAULT = 0,
++	EDCCA_FCC = 1,
++	EDCCA_ETSI = 2,
++	EDCCA_JAPAN = 3
++};
++
+ #endif
+ 
+ #endif
+diff --git a/mt7996/vendor.c b/mt7996/vendor.c
+index 39101577..9f333d0e 100644
+--- a/mt7996/vendor.c
++++ b/mt7996/vendor.c
+@@ -40,6 +40,26 @@ bss_color_ctrl_policy[NUM_MTK_VENDOR_ATTRS_BSS_COLOR_CTRL] = {
+ 	[MTK_VENDOR_ATTR_AVAL_BSS_COLOR_BMP] = { .type = NLA_U64 },
+ };
+ 
++static const struct nla_policy
++edcca_ctrl_policy[NUM_MTK_VENDOR_ATTRS_EDCCA_CTRL] = {
++	[MTK_VENDOR_ATTR_EDCCA_CTRL_MODE] = { .type = NLA_U8 },
++	[MTK_VENDOR_ATTR_EDCCA_CTRL_PRI20_VAL] = { .type = NLA_U8 },
++	[MTK_VENDOR_ATTR_EDCCA_CTRL_SEC20_VAL] = { .type = NLA_U8 },
++	[MTK_VENDOR_ATTR_EDCCA_CTRL_SEC40_VAL] = { .type = NLA_U8 },
++	[MTK_VENDOR_ATTR_EDCCA_CTRL_SEC80_VAL] = { .type = NLA_U8 },
++	[MTK_VENDOR_ATTR_EDCCA_CTRL_COMPENSATE] = { .type = NLA_S8 },
++	[MTK_VENDOR_ATTR_EDCCA_CTRL_SEC160_VAL] = { .type = NLA_U8 },
++};
++
++static const struct nla_policy
++edcca_dump_policy[NUM_MTK_VENDOR_ATTRS_EDCCA_DUMP] = {
++	[MTK_VENDOR_ATTR_EDCCA_DUMP_MODE] = { .type = NLA_U8 },
++	[MTK_VENDOR_ATTR_EDCCA_DUMP_PRI20_VAL] = { .type = NLA_U8 },
++	[MTK_VENDOR_ATTR_EDCCA_DUMP_SEC40_VAL] = { .type = NLA_U8 },
++	[MTK_VENDOR_ATTR_EDCCA_DUMP_SEC80_VAL] = { .type = NLA_U8 },
++	[MTK_VENDOR_ATTR_EDCCA_DUMP_SEC160_VAL] = { .type = NLA_U8 },
++};
++
+ struct mt7996_amnt_data {
+ 	u8 idx;
+ 	u8 addr[ETH_ALEN];
+@@ -436,6 +456,106 @@ mt7996_vendor_bss_color_ctrl_dump(struct wiphy *wiphy, struct wireless_dev *wdev
+ 	return len;
+ }
+ 
++static int mt7996_vendor_edcca_ctrl(struct wiphy *wiphy, struct wireless_dev *wdev,
++				    const void *data, int data_len)
++{
++	struct ieee80211_hw *hw = wiphy_to_ieee80211_hw(wiphy);
++	struct mt7996_phy *phy = mt7996_hw_phy(hw);
++	struct nlattr *tb[NUM_MTK_VENDOR_ATTRS_EDCCA_CTRL];
++	int err;
++	u8 edcca_mode;
++	u8 edcca_value[EDCCA_MAX_BW_NUM];
++
++	err = nla_parse(tb, MTK_VENDOR_ATTR_EDCCA_CTRL_MAX, data, data_len,
++			edcca_ctrl_policy, NULL);
++	if (err)
++		return err;
++
++	if (!tb[MTK_VENDOR_ATTR_EDCCA_CTRL_MODE])
++		return -EINVAL;
++
++	edcca_mode = nla_get_u8(tb[MTK_VENDOR_ATTR_EDCCA_CTRL_MODE]);
++	if (edcca_mode == EDCCA_CTRL_SET_EN) {
++		if (!tb[MTK_VENDOR_ATTR_EDCCA_CTRL_PRI20_VAL])
++			return -EINVAL;
++
++		edcca_value[0] =
++			nla_get_u8(tb[MTK_VENDOR_ATTR_EDCCA_CTRL_PRI20_VAL]);
++
++		err = mt7996_mcu_edcca_enable(phy, !!edcca_value[0]);
++		if (err)
++			return err;
++	} else if (edcca_mode == EDCCA_CTRL_SET_THRES) {
++		if (!tb[MTK_VENDOR_ATTR_EDCCA_CTRL_PRI20_VAL] ||
++		    !tb[MTK_VENDOR_ATTR_EDCCA_CTRL_SEC40_VAL] ||
++		    !tb[MTK_VENDOR_ATTR_EDCCA_CTRL_SEC80_VAL] ||
++		    !tb[MTK_VENDOR_ATTR_EDCCA_CTRL_SEC160_VAL]) {
++			return -EINVAL;
++		}
++		edcca_value[EDCCA_BW_20] =
++			nla_get_u8(tb[MTK_VENDOR_ATTR_EDCCA_CTRL_PRI20_VAL]);
++		edcca_value[EDCCA_BW_40] =
++			nla_get_u8(tb[MTK_VENDOR_ATTR_EDCCA_CTRL_SEC40_VAL]);
++		edcca_value[EDCCA_BW_80] =
++			nla_get_u8(tb[MTK_VENDOR_ATTR_EDCCA_CTRL_SEC80_VAL]);
++		edcca_value[EDCCA_BW_160] =
++			nla_get_u8(tb[MTK_VENDOR_ATTR_EDCCA_CTRL_SEC160_VAL]);
++
++		err = mt7996_mcu_edcca_threshold_ctrl(phy, edcca_value, true);
++
++		if (err)
++			return err;
++	} else {
++		return -EINVAL;
++	}
++
++	return 0;
++}
++
++
++static int
++mt7996_vendor_edcca_ctrl_dump(struct wiphy *wiphy, struct wireless_dev *wdev,
++			     struct sk_buff *skb, const void *data, int data_len,
++			     unsigned long *storage)
++{
++	struct ieee80211_hw *hw = wiphy_to_ieee80211_hw(wiphy);
++	struct mt7996_phy *phy = mt7996_hw_phy(hw);
++	struct nlattr *tb[NUM_MTK_VENDOR_ATTRS_EDCCA_CTRL];
++	int err;
++	u8 edcca_mode;
++	u8 value[EDCCA_MAX_BW_NUM];
++
++	if (*storage == 1)
++		return -ENOENT;
++	*storage = 1;
++
++	err = nla_parse(tb, MTK_VENDOR_ATTR_EDCCA_CTRL_MAX, data, data_len,
++			edcca_ctrl_policy, NULL);
++	if (err)
++		return err;
++
++	if (!tb[MTK_VENDOR_ATTR_EDCCA_CTRL_MODE])
++		return -EINVAL;
++
++	edcca_mode = nla_get_u8(tb[MTK_VENDOR_ATTR_EDCCA_CTRL_MODE]);
++
++	if (edcca_mode != EDCCA_CTRL_GET_THRES)
++		return -EINVAL;
++
++	err = mt7996_mcu_edcca_threshold_ctrl(phy, value, false);
++
++	if (err)
++		return err;
++
++	if (nla_put_u8(skb, MTK_VENDOR_ATTR_EDCCA_DUMP_PRI20_VAL, value[EDCCA_BW_20]) ||
++	    nla_put_u8(skb, MTK_VENDOR_ATTR_EDCCA_DUMP_SEC40_VAL, value[EDCCA_BW_40]) ||
++	    nla_put_u8(skb, MTK_VENDOR_ATTR_EDCCA_DUMP_SEC80_VAL, value[EDCCA_BW_80]) ||
++	    nla_put_u8(skb, MTK_VENDOR_ATTR_EDCCA_DUMP_SEC160_VAL, value[EDCCA_BW_160]))
++		return -ENOMEM;
++
++	return EDCCA_MAX_BW_NUM;
++}
++
+ static const struct wiphy_vendor_command mt7996_vendor_commands[] = {
+ 	{
+ 		.info = {
+@@ -472,6 +592,18 @@ static const struct wiphy_vendor_command mt7996_vendor_commands[] = {
+ 		.policy = bss_color_ctrl_policy,
+ 		.maxattr = MTK_VENDOR_ATTR_BSS_COLOR_CTRL_MAX,
+ 	},
++	{
++		.info = {
++			.vendor_id = MTK_NL80211_VENDOR_ID,
++			.subcmd = MTK_NL80211_VENDOR_SUBCMD_EDCCA_CTRL,
++		},
++		.flags = WIPHY_VENDOR_CMD_NEED_NETDEV |
++			 WIPHY_VENDOR_CMD_NEED_RUNNING,
++		.doit = mt7996_vendor_edcca_ctrl,
++		.dumpit = mt7996_vendor_edcca_ctrl_dump,
++		.policy = edcca_ctrl_policy,
++		.maxattr = MTK_VENDOR_ATTR_EDCCA_CTRL_MAX,
++	},
+ };
+ 
+ void mt7996_vendor_register(struct mt7996_phy *phy)
+diff --git a/mt7996/vendor.h b/mt7996/vendor.h
+index eec9e74a..4465bc9d 100644
+--- a/mt7996/vendor.h
++++ b/mt7996/vendor.h
+@@ -6,9 +6,42 @@
+ enum mtk_nl80211_vendor_subcmds {
+ 	MTK_NL80211_VENDOR_SUBCMD_AMNT_CTRL = 0xae,
+ 	MTK_NL80211_VENDOR_SUBCMD_MU_CTRL = 0xc5,
++	MTK_NL80211_VENDOR_SUBCMD_EDCCA_CTRL = 0xc7,
+ 	MTK_NL80211_VENDOR_SUBCMD_BSS_COLOR_CTRL = 0xca,
+ };
+ 
++enum mtk_vendor_attr_edcca_ctrl {
++	MTK_VENDOR_ATTR_EDCCA_THRESHOLD_INVALID = 0,
++
++	MTK_VENDOR_ATTR_EDCCA_CTRL_MODE,
++	MTK_VENDOR_ATTR_EDCCA_CTRL_PRI20_VAL,
++	MTK_VENDOR_ATTR_EDCCA_CTRL_SEC20_VAL,
++	MTK_VENDOR_ATTR_EDCCA_CTRL_SEC40_VAL,
++	MTK_VENDOR_ATTR_EDCCA_CTRL_SEC80_VAL,
++	MTK_VENDOR_ATTR_EDCCA_CTRL_COMPENSATE,
++	MTK_VENDOR_ATTR_EDCCA_CTRL_SEC160_VAL,
++
++	/* keep last */
++	NUM_MTK_VENDOR_ATTRS_EDCCA_CTRL,
++	MTK_VENDOR_ATTR_EDCCA_CTRL_MAX =
++		NUM_MTK_VENDOR_ATTRS_EDCCA_CTRL - 1
++};
++
++enum mtk_vendor_attr_edcca_dump {
++	MTK_VENDOR_ATTR_EDCCA_DUMP_UNSPEC = 0,
++
++	MTK_VENDOR_ATTR_EDCCA_DUMP_MODE,
++	MTK_VENDOR_ATTR_EDCCA_DUMP_PRI20_VAL,
++	MTK_VENDOR_ATTR_EDCCA_DUMP_SEC40_VAL,
++	MTK_VENDOR_ATTR_EDCCA_DUMP_SEC80_VAL,
++	MTK_VENDOR_ATTR_EDCCA_DUMP_SEC160_VAL,
++
++	/* keep last */
++	NUM_MTK_VENDOR_ATTRS_EDCCA_DUMP,
++	MTK_VENDOR_ATTR_EDCCA_DUMP_MAX =
++		NUM_MTK_VENDOR_ATTRS_EDCCA_DUMP - 1
++};
++
+ enum mtk_vendor_attr_mu_ctrl {
+ 	MTK_VENDOR_ATTR_MU_CTRL_UNSPEC,
+ 
+-- 
+2.18.0
+

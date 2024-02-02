@@ -1,0 +1,39 @@
+From aa09e81d195b255f89ab46f2b4455ce4de29fee1 Mon Sep 17 00:00:00 2001
+From: Shayne Chen <shayne.chen@mediatek.com>
+Date: Mon, 27 Nov 2023 16:39:36 +0800
+Subject: [PATCH 02/40] backports: update kernel version check for
+ eth_hw_addr_set()
+
+Kernel v5.4.260 has added this API, so update kernel version check in
+backports include.
+
+Signed-off-by: Shayne Chen <shayne.chen@mediatek.com>
+---
+ backport-include/linux/etherdevice.h | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/backport-include/linux/etherdevice.h b/backport-include/linux/etherdevice.h
+index 51a7d6d..ecc3bc2 100644
+--- a/backport-include/linux/etherdevice.h
++++ b/backport-include/linux/etherdevice.h
+@@ -39,7 +39,7 @@ static inline void u64_to_ether_addr(u64 u, u8 *addr)
+ }
+ #endif /* LINUX_VERSION_IS_LESS(4,11,0) */
+ 
+-#if LINUX_VERSION_IS_LESS(5,15,0)
++#if LINUX_VERSION_IS_LESS(5,4,260)
+ /**
+  * eth_hw_addr_set - Assign Ethernet address to a net_device
+  * @dev: pointer to net_device structure
+@@ -51,7 +51,7 @@ static inline void eth_hw_addr_set(struct net_device *dev, const u8 *addr)
+ {
+ 	ether_addr_copy(dev->dev_addr, addr);
+ }
+-#endif /* LINUX_VERSION_IS_LESS(5,15,0) */
++#endif /* LINUX_VERSION_IS_LESS(5,4,260) */
+ 
+ #if LINUX_VERSION_IS_LESS(5,16,0)
+ static inline int backport_device_get_mac_address(struct device *dev, char *addr)
+-- 
+2.18.0
+

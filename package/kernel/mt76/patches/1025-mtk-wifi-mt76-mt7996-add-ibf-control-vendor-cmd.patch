@@ -1,0 +1,143 @@
+From f5758611be21fa63b3414e0746ddb5fb8b7a6700 Mon Sep 17 00:00:00 2001
+From: "Allen.Ye" <allen.ye@mediatek.com>
+Date: Fri, 22 Sep 2023 09:54:49 +0800
+Subject: [PATCH 1025/1044] mtk: wifi: mt76: mt7996: add ibf control vendor cmd
+
+Signed-off-by: Allen.Ye <allen.ye@mediatek.com>
+---
+ mt7996/vendor.c | 65 +++++++++++++++++++++++++++++++++++++++++++++++++
+ mt7996/vendor.h | 23 +++++++++++++++++
+ 2 files changed, 88 insertions(+)
+
+diff --git a/mt7996/vendor.c b/mt7996/vendor.c
+index 9f333d0e..dae3260a 100644
+--- a/mt7996/vendor.c
++++ b/mt7996/vendor.c
+@@ -60,6 +60,11 @@ edcca_dump_policy[NUM_MTK_VENDOR_ATTRS_EDCCA_DUMP] = {
+ 	[MTK_VENDOR_ATTR_EDCCA_DUMP_SEC160_VAL] = { .type = NLA_U8 },
+ };
+ 
++static const struct nla_policy
++ibf_ctrl_policy[NUM_MTK_VENDOR_ATTRS_IBF_CTRL] = {
++	[MTK_VENDOR_ATTR_IBF_CTRL_ENABLE] = { .type = NLA_U8 },
++};
++
+ struct mt7996_amnt_data {
+ 	u8 idx;
+ 	u8 addr[ETH_ALEN];
+@@ -556,6 +561,54 @@ mt7996_vendor_edcca_ctrl_dump(struct wiphy *wiphy, struct wireless_dev *wdev,
+ 	return EDCCA_MAX_BW_NUM;
+ }
+ 
++static int mt7996_vendor_ibf_ctrl(struct wiphy *wiphy,
++				  struct wireless_dev *wdev,
++				  const void *data,
++				  int data_len)
++{
++	struct ieee80211_hw *hw = wiphy_to_ieee80211_hw(wiphy);
++	struct mt7996_phy *phy = mt7996_hw_phy(hw);
++	struct mt7996_dev *dev = phy->dev;
++	struct nlattr *tb[NUM_MTK_VENDOR_ATTRS_IBF_CTRL];
++	int err;
++	u8 val;
++
++	err = nla_parse(tb, MTK_VENDOR_ATTR_IBF_CTRL_MAX, data, data_len,
++			ibf_ctrl_policy, NULL);
++	if (err)
++		return err;
++
++	if (tb[MTK_VENDOR_ATTR_IBF_CTRL_ENABLE]) {
++		val = nla_get_u8(tb[MTK_VENDOR_ATTR_IBF_CTRL_ENABLE]);
++
++		dev->ibf = !!val;
++
++		err = mt7996_mcu_set_txbf(dev, BF_HW_EN_UPDATE);
++		if (err)
++			return err;
++	}
++	return 0;
++}
++
++static int
++mt7996_vendor_ibf_ctrl_dump(struct wiphy *wiphy, struct wireless_dev *wdev,
++			    struct sk_buff *skb, const void *data, int data_len,
++			    unsigned long *storage)
++{
++	struct ieee80211_hw *hw = wiphy_to_ieee80211_hw(wiphy);
++	struct mt7996_phy *phy = mt7996_hw_phy(hw);
++	struct mt7996_dev *dev = phy->dev;
++
++	if (*storage == 1)
++		return -ENOENT;
++	*storage = 1;
++
++	if (nla_put_u8(skb, MTK_VENDOR_ATTR_IBF_DUMP_ENABLE, dev->ibf))
++		return -ENOMEM;
++
++	return 1;
++}
++
+ static const struct wiphy_vendor_command mt7996_vendor_commands[] = {
+ 	{
+ 		.info = {
+@@ -604,6 +657,18 @@ static const struct wiphy_vendor_command mt7996_vendor_commands[] = {
+ 		.policy = edcca_ctrl_policy,
+ 		.maxattr = MTK_VENDOR_ATTR_EDCCA_CTRL_MAX,
+ 	},
++	{
++		.info = {
++			.vendor_id = MTK_NL80211_VENDOR_ID,
++			.subcmd = MTK_NL80211_VENDOR_SUBCMD_IBF_CTRL,
++		},
++		.flags = WIPHY_VENDOR_CMD_NEED_NETDEV |
++			WIPHY_VENDOR_CMD_NEED_RUNNING,
++		.doit = mt7996_vendor_ibf_ctrl,
++		.dumpit = mt7996_vendor_ibf_ctrl_dump,
++		.policy = ibf_ctrl_policy,
++		.maxattr = MTK_VENDOR_ATTR_IBF_CTRL_MAX,
++	},
+ };
+ 
+ void mt7996_vendor_register(struct mt7996_phy *phy)
+diff --git a/mt7996/vendor.h b/mt7996/vendor.h
+index 4465bc9d..49f46f25 100644
+--- a/mt7996/vendor.h
++++ b/mt7996/vendor.h
+@@ -7,6 +7,7 @@ enum mtk_nl80211_vendor_subcmds {
+ 	MTK_NL80211_VENDOR_SUBCMD_AMNT_CTRL = 0xae,
+ 	MTK_NL80211_VENDOR_SUBCMD_MU_CTRL = 0xc5,
+ 	MTK_NL80211_VENDOR_SUBCMD_EDCCA_CTRL = 0xc7,
++	MTK_NL80211_VENDOR_SUBCMD_IBF_CTRL = 0xc9,
+ 	MTK_NL80211_VENDOR_SUBCMD_BSS_COLOR_CTRL = 0xca,
+ };
+ 
+@@ -102,4 +103,26 @@ enum mtk_vendor_attr_bss_color_ctrl {
+ 		NUM_MTK_VENDOR_ATTRS_BSS_COLOR_CTRL - 1
+ };
+ 
++enum mtk_vendor_attr_ibf_ctrl {
++	MTK_VENDOR_ATTR_IBF_CTRL_UNSPEC,
++
++	MTK_VENDOR_ATTR_IBF_CTRL_ENABLE,
++
++	/* keep last */
++	NUM_MTK_VENDOR_ATTRS_IBF_CTRL,
++	MTK_VENDOR_ATTR_IBF_CTRL_MAX =
++		NUM_MTK_VENDOR_ATTRS_IBF_CTRL - 1
++};
++
++enum mtk_vendor_attr_ibf_dump {
++	MTK_VENDOR_ATTR_IBF_DUMP_UNSPEC,
++
++	MTK_VENDOR_ATTR_IBF_DUMP_ENABLE,
++
++	/* keep last */
++	NUM_MTK_VENDOR_ATTRS_IBF_DUMP,
++	MTK_VENDOR_ATTR_IBF_DUMP_MAX =
++		NUM_MTK_VENDOR_ATTRS_IBF_DUMP - 1
++};
++
+ #endif
+-- 
+2.18.0
+

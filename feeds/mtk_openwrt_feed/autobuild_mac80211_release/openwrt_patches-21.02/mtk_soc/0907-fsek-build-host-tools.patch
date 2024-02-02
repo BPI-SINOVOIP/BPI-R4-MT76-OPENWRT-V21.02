@@ -1,0 +1,53 @@
+diff --git a/package/Makefile b/package/Makefile
+index 392d773..15af01b 100644
+--- a/package/Makefile
++++ b/package/Makefile
+@@ -62,6 +62,7 @@ ifndef SDK
+   $(curdir)/compile: $(curdir)/system/opkg/host/compile
+ endif
+ $(curdir)/compile: $(curdir)/cryptsetup/host/compile
++$(curdir)/compile: $(curdir)/dtc/host/compile
+ 
+ $(curdir)/install: $(TMP_DIR)/.build $(curdir)/merge $(if $(CONFIG_TARGET_PER_DEVICE_ROOTFS),$(curdir)/merge-index)
+ 	- find $(STAGING_DIR_ROOT) -type d | $(XARGS) chmod 0755
+diff --git a/package/utils/dtc/Makefile b/package/utils/dtc/Makefile
+index deec4e3..88ad84c 100644
+--- a/package/utils/dtc/Makefile
++++ b/package/utils/dtc/Makefile
+@@ -16,7 +16,10 @@ PKG_INSTALL:=1
+ PKG_MAINTAINER:=Yousong Zhou <yszhou4tech@gmail.com>
+ 
+ include $(INCLUDE_DIR)/package.mk
++include $(INCLUDE_DIR)/host-build.mk
+ 
++HOST_BUILD_PREFIX:=$(STAGING_DIR_HOST)
++HOST_BUILD_DIR:=$(BUILD_DIR_HOST)/$(PKG_NAME)-$(PKG_VERSION)
+ 
+ define Package/dtc
+   SECTION:=utils
+@@ -87,6 +90,13 @@ define Build/InstallDev
+ 	$(CP) $(PKG_INSTALL_DIR)/lib/* $(1)/usr/lib
+ endef
+ 
++define Host/Install
++	$(CP) $(HOST_BUILD_DIR)/libfdt/libfdt*.so* $(STAGING_DIR_HOST)/lib/
++	$(CP) $(HOST_BUILD_DIR)/fdtget $(STAGING_DIR_HOST)/bin/
++	$(CP) $(HOST_BUILD_DIR)/fdtput $(STAGING_DIR_HOST)/bin/
++endef
++
+ $(eval $(call BuildPackage,dtc))
+ $(eval $(call BuildPackage,fdt-utils))
+ $(eval $(call BuildPackage,libfdt))
++$(eval $(call HostBuild))
+diff --git a/feeds/packages/utils/cryptsetup/Makefile b/feeds/packages/utils/cryptsetup/Makefile
+index 6d5264d..25553df 100644
+--- a/feeds/packages/utils/cryptsetup/Makefile
++++ b/feeds/packages/utils/cryptsetup/Makefile
+@@ -113,6 +113,7 @@ endef
+ 
+ define Host/Install
+ 	$(INSTALL_BIN) $(HOST_BUILD_DIR)/veritysetup $(STAGING_DIR_HOST)/bin/veritysetup
++	$(INSTALL_BIN) $(HOST_BUILD_DIR)/cryptsetup $(STAGING_DIR_HOST)/bin/cryptsetup
+ 	$(CP) $(HOST_BUILD_DIR)/.libs $(STAGING_DIR_HOST)/bin/
+ endef
+ 

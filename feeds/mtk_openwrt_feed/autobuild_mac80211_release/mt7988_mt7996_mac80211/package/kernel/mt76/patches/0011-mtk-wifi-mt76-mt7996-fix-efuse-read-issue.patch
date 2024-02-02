@@ -1,0 +1,30 @@
+From 68cbc6f4aa32410876f18d54f053b4f928b4b981 Mon Sep 17 00:00:00 2001
+From: StanleyYP Wang <StanleyYP.Wang@mediatek.com>
+Date: Wed, 29 Nov 2023 10:55:15 +0800
+Subject: [PATCH 11/25] mtk: wifi: mt76: mt7996: fix efuse read issue
+
+The efuse data starts at 48 bytes instead of 64 bytes in the returned
+skb.
+This patch should be upstreamed.
+
+Signed-off-by: StanleyYP Wang <StanleyYP.Wang@mediatek.com>
+---
+ mt7996/mcu.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/mt7996/mcu.c b/mt7996/mcu.c
+index 071a9ec2..98ea9c20 100644
+--- a/mt7996/mcu.c
++++ b/mt7996/mcu.c
+@@ -3561,7 +3561,7 @@ int mt7996_mcu_get_eeprom(struct mt7996_dev *dev, u32 offset)
+ 		u32 addr = le32_to_cpu(*(__le32 *)(skb->data + 12));
+ 		u8 *buf = (u8 *)dev->mt76.eeprom.data + addr;
+ 
+-		skb_pull(skb, 64);
++		skb_pull(skb, 48);
+ 		memcpy(buf, skb->data, MT7996_EEPROM_BLOCK_SIZE);
+ 	}
+ 
+-- 
+2.18.0
+

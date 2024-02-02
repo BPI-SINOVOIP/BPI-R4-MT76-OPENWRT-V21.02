@@ -1,0 +1,46 @@
+Source-Makefile: feeds/mtk_openwrt_feed/feed/tops-tool/Makefile
+
+Package: tops-tool
+Submenu: Applications
+Default: y
+Version: 1
+Depends: +libc +USE_GLIBC:librt +USE_GLIBC:libpthread kmod-tops
+Conflicts: 
+Menu-Depends: 
+Provides: 
+Section: MTK Properties
+Category: MTK Properties
+Repository: base
+Title: Mediatek Tunnel Offload Processor System User Tool
+Maintainer: 
+Source: 
+Type: ipkg
+Description:   This package is support for MediaTek tunnel offload processor system user tool.
+  The tool will monitor TOPS status, such as TOPS core utilization rate and core
+  debug dump info. Some features are not monitored by default unless user trigger
+  it to start. The tool will support logging functionality in the future.
+
+@@
+
+Package: tops-tool-autoload
+Submenu: Applications
+Default: y if PACKAGE_kmod-tops-release-autoload || PACKAGE_kmod-tops-dev-autoload
+Version: 1
+Depends: +libc +USE_GLIBC:librt +USE_GLIBC:libpthread tops-tool
+Conflicts: 
+Menu-Depends: 
+Provides: 
+Section: opt
+Category: MTK Properties
+Repository: base
+Title: Mediatek Tunnel Offload Processor System User Tool Auto Load
+Maintainer: 
+Source: 
+Type: ipkg
+Description:   This package is support for MediaTek tunnel offload processor system user tool
+  autoload. The tool will automatically start monitor TOPS status when system
+  boot up.
+
+@@
+
+

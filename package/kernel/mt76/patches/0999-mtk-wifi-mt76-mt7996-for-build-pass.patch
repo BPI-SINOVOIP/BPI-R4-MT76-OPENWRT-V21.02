@@ -1,0 +1,158 @@
+From 2b2dc33d94447570f8dbadb46e08f6ede2d67d72 Mon Sep 17 00:00:00 2001
+From: Shayne Chen <shayne.chen@mediatek.com>
+Date: Thu, 3 Nov 2022 00:27:17 +0800
+Subject: [PATCH 0999/1044] mtk: wifi: mt76: mt7996: for build pass
+
+---
+ debugfs.c         | 3 +++
+ dma.c             | 2 +-
+ eeprom.c          | 8 +++++++-
+ mcu.c             | 1 +
+ mt7615/mcu.c      | 1 +
+ mt76_connac_mcu.c | 1 +
+ mt7915/mcu.c      | 1 +
+ mt7996/dma.c      | 4 ++--
+ mt7996/eeprom.c   | 1 +
+ mt7996/mcu.c      | 1 +
+ 10 files changed, 19 insertions(+), 4 deletions(-)
+
+diff --git a/debugfs.c b/debugfs.c
+index c4649ba0..ac5207e5 100644
+--- a/debugfs.c
++++ b/debugfs.c
+@@ -33,8 +33,11 @@ mt76_napi_threaded_set(void *data, u64 val)
+ 	if (!mt76_is_mmio(dev))
+ 		return -EOPNOTSUPP;
+ 
++#if 0
++	/* need to backport patch from networking stack */
+ 	if (dev->napi_dev.threaded != val)
+ 		return dev_set_threaded(&dev->napi_dev, val);
++#endif
+ 
+ 	return 0;
+ }
+diff --git a/dma.c b/dma.c
+index 00230f10..12f0e2fd 100644
+--- a/dma.c
++++ b/dma.c
+@@ -960,7 +960,7 @@ mt76_dma_rx_process(struct mt76_dev *dev, struct mt76_queue *q, int budget)
+ 		    !(dev->drv->rx_check(dev, data, len)))
+ 			goto free_frag;
+ 
+-		skb = napi_build_skb(data, q->buf_size);
++		skb = build_skb(data, q->buf_size);
+ 		if (!skb)
+ 			goto free_frag;
+ 
+diff --git a/eeprom.c b/eeprom.c
+index 0bc66cc1..7d5cf28f 100644
+--- a/eeprom.c
++++ b/eeprom.c
+@@ -163,9 +163,15 @@ void
+ mt76_eeprom_override(struct mt76_phy *phy)
+ {
+ 	struct mt76_dev *dev = phy->dev;
++#ifdef CONFIG_OF
+ 	struct device_node *np = dev->dev->of_node;
++	const u8 *mac = NULL;
+ 
+-	of_get_mac_address(np, phy->macaddr);
++	if (np)
++		mac = of_get_mac_address(np);
++	if (!IS_ERR_OR_NULL(mac))
++		ether_addr_copy(phy->macaddr, mac);
++#endif
+ 
+ 	if (!is_valid_ether_addr(phy->macaddr)) {
+ 		eth_random_addr(phy->macaddr);
+diff --git a/mcu.c b/mcu.c
+index a8cafa39..fa4b0544 100644
+--- a/mcu.c
++++ b/mcu.c
+@@ -4,6 +4,7 @@
+  */
+ 
+ #include "mt76.h"
++#include <linux/moduleparam.h>
+ 
+ struct sk_buff *
+ __mt76_mcu_msg_alloc(struct mt76_dev *dev, const void *data,
+diff --git a/mt7615/mcu.c b/mt7615/mcu.c
+index ae34d019..c9444c6d 100644
+--- a/mt7615/mcu.c
++++ b/mt7615/mcu.c
+@@ -10,6 +10,7 @@
+ #include "mcu.h"
+ #include "mac.h"
+ #include "eeprom.h"
++#include <linux/moduleparam.h>
+ 
+ static bool prefer_offload_fw = true;
+ module_param(prefer_offload_fw, bool, 0644);
+diff --git a/mt76_connac_mcu.c b/mt76_connac_mcu.c
+index 8dd61f86..52237583 100644
+--- a/mt76_connac_mcu.c
++++ b/mt76_connac_mcu.c
+@@ -4,6 +4,7 @@
+ #include <linux/firmware.h>
+ #include "mt76_connac2_mac.h"
+ #include "mt76_connac_mcu.h"
++#include <linux/module.h>
+ 
+ int mt76_connac_mcu_start_firmware(struct mt76_dev *dev, u32 addr, u32 option)
+ {
+diff --git a/mt7915/mcu.c b/mt7915/mcu.c
+index 09badb16..2718ba52 100644
+--- a/mt7915/mcu.c
++++ b/mt7915/mcu.c
+@@ -6,6 +6,7 @@
+ #include "mcu.h"
+ #include "mac.h"
+ #include "eeprom.h"
++#include <linux/moduleparam.h>
+ 
+ #define fw_name(_dev, name, ...)	({			\
+ 	char *_fw;						\
+diff --git a/mt7996/dma.c b/mt7996/dma.c
+index 483ad81b..8e29ab06 100644
+--- a/mt7996/dma.c
++++ b/mt7996/dma.c
+@@ -640,8 +640,8 @@ int mt7996_dma_init(struct mt7996_dev *dev)
+ 	if (ret < 0)
+ 		return ret;
+ 
+-	netif_napi_add_tx(&dev->mt76.tx_napi_dev, &dev->mt76.tx_napi,
+-			  mt7996_poll_tx);
++	netif_tx_napi_add(&dev->mt76.tx_napi_dev, &dev->mt76.tx_napi,
++			  mt7996_poll_tx, NAPI_POLL_WEIGHT);
+ 	napi_enable(&dev->mt76.tx_napi);
+ 
+ 	mt7996_dma_enable(dev, false);
+diff --git a/mt7996/eeprom.c b/mt7996/eeprom.c
+index 3260d1fe..121a3c95 100644
+--- a/mt7996/eeprom.c
++++ b/mt7996/eeprom.c
+@@ -138,6 +138,7 @@ static int mt7996_eeprom_parse_efuse_hw_cap(struct mt7996_dev *dev)
+ 	if (ret)
+ 		return ret;
+ 
++	cap = 0x4b249248;	/* internal hardcode */
+ 	if (cap) {
+ 		dev->has_eht = !(cap & MODE_HE_ONLY);
+ 		dev->wtbl_size_group = u32_get_bits(cap, WTBL_SIZE_GROUP);
+diff --git a/mt7996/mcu.c b/mt7996/mcu.c
+index 46ee93c0..ae78141e 100644
+--- a/mt7996/mcu.c
++++ b/mt7996/mcu.c
+@@ -5,6 +5,7 @@
+ 
+ #include <linux/firmware.h>
+ #include <linux/fs.h>
++#include <linux/moduleparam.h>
+ #include "mt7996.h"
+ #include "mcu.h"
+ #include "mac.h"
+-- 
+2.18.0
+

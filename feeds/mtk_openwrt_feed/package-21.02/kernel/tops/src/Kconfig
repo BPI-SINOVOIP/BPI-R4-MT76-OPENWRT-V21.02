@@ -1,0 +1,158 @@
+config MTK_TOPS_SUPPORT
+	bool "Mediatek Tunnel Offload Processor System Support"
+	help
+	  Support for Mediatek Tunnel Offload Processor System which
+	  offloads tunnel protocols such as GRE, VxLAN, L2TP, PPTP etc. from
+	  host CPU. The TOPS system cooperate with Mediatek HNAT HW and
+	  Mediatek PCE HW to offload specific tunnel procotol.
+
+config MTK_TOPS_GRE
+	depends on MTK_TOPS_SUPPORT
+	bool
+	help
+	  Support for GRE offload to Mediatek Network Processing Unit.
+	  Alleviate host CPU's loading by offloading GRE related encapulation
+	  and decapulation to NPU.
+
+config MTK_TOPS_GRETAP
+	depends on MTK_TOPS_SUPPORT
+	select MTK_TOPS_GRE
+	bool "Mediatek TOPS L2oGRE Offload Support"
+	help
+	  Support for L2oGRE offload to Mediatek Network Processing Unit.
+	  Alleviate host CPU's loading by offloading L2oGRE encapulation and
+	  decapulation to NPU.
+
+config MTK_TOPS_PPTP
+	depends on MTK_TOPS_SUPPORT
+	bool "Mediatek TOPS PPTP Offload Support"
+	help
+	  Support for PPTP offload to Mediatek Network Processing Unit.
+	  Alleviate host CPU's loading by offloading PPTP encapulation and
+	  decapulation to NPU.
+
+config MTK_TOPS_L2TP
+	depends on MTK_TOPS_SUPPORT
+	bool
+	help
+	  Support for L2TP offload to Mediatek Network Processing Unit.
+	  Alleviate host CPU's loading by offloading L2TP related encapulation
+	  and decapulation to NPU.
+
+config MTK_TOPS_IP_L2TP
+	depends on MTK_TOPS_SUPPORT
+	select MTK_TOPS_L2TP
+	bool "Mediatek TOPS IP L2TP Offload Support"
+	help
+	  Support for IP L2TP offload to Mediatek Network Processing Unit.
+	  Alleviate host CPU's loading by offloading IP L2TP encapulation and
+	  decapulation to NPU.
+
+config MTK_TOPS_UDP_L2TP_CTRL
+	depends on MTK_TOPS_SUPPORT
+	select MTK_TOPS_L2TP
+	bool "Mediatek TOPS UDP L2TP Control Offload Support"
+	help
+	  Support for UDP L2TP control offload to Mediatek Network Processing
+	  Unit. Alleviate host CPU's loading by offloading UDP L2TP control
+	  encapulation and decapulation to NPU.
+
+config MTK_TOPS_UDP_L2TP_DATA
+	depends on MTK_TOPS_SUPPORT
+	select MTK_TOPS_L2TP
+	bool "Mediatek TOPS UDP L2TP Data Offload Support"
+	help
+	  Support for UDP L2TP data offload to Mediatek Network Processing
+	  Unit. Alleviate host CPU's loading by offloading UDP L2TP data
+	  encapulation and decapulation to NPU.
+
+config MTK_TOPS_VXLAN
+	depends on MTK_TOPS_SUPPORT
+	bool "Mediatek TOPS VxLAN Offload Support"
+	help
+	  Support for VxLAN offload to Mediatek Network Processing Unit.
+	  Alleviate host CPU's loading by offloading VxLAN encapulation and
+	  decapulation to NPU.
+
+config MTK_TOPS_NATT
+	depends on MTK_TOPS_SUPPORT
+	bool "Mediatek TOPS NAT Traversal Offload Support"
+	help
+	  Support for NATT offload to Mediatek Network Processing Unit.
+	  Alleviate host CPU's loading by offloading NATT encapulation and
+	  decapulation to NPU.
+
+config MTK_TOPS_CAPWAP
+	depends on MTK_TOPS_SUPPORT
+	bool
+	help
+	  Support for CAPWAP offload to Mediatek Network Processing Unit.
+	  Alleviate host CPU's loading by offloading CAPWAP related
+	  encapulation and decapulation to NPU.
+
+config MTK_TOPS_CAPWAP_CTRL
+	depends on MTK_TOPS_SUPPORT
+	select MTK_TOPS_CAPWAP
+	bool "Mediatek TOPS CAPWAP Control Offload Support"
+	help
+	  Support for CAPWAP control offload to Mediatek Network Processing
+	  Unit. Alleviate host CPU's loading by offloading CAPWAP control
+	  encapulation and decapulation to NPU.
+
+config MTK_TOPS_CAPWAP_DATA
+	depends on MTK_TOPS_SUPPORT
+	select MTK_TOPS_CAPWAP
+	bool "Mediatek TOPS CAPWAP Data Offload Support"
+	help
+	  Support for CAPWAP data offload to Mediatek Network Processing
+	  Unit. Alleviate host CPU's loading by offloading CAPWAP data
+	  encapulation and decapulation to NPU.
+
+config MTK_TOPS_CAPWAP_DTLS
+	depends on MTK_TOPS_SUPPORT
+	select MTK_TOPS_CAPWAP
+	bool "Mediatek TOPS CAPWAP DTLS Offload Support"
+	help
+	  Support for CAPWAP DTLS offload to Mediatek Network Processing
+	  Unit. Alleviate host CPU's loading by offloading CAPWAP DTLS
+	  encapulation and decapulation to NPU.
+
+config MTK_TOPS_IPSEC
+	depends on MTK_TOPS_SUPPORT
+	bool
+	help
+	  Support for IPSEC offload to Mediatek Network Processing Unit.
+	  Alleviate host CPU's loading by offloading IPSEC related
+	  encapulation and decapulation to NPU.
+
+config MTK_TOPS_IPSEC_ESP
+	depends on MTK_TOPS_SUPPORT
+	select MTK_TOPS_IPSEC
+	bool "Mediatek TOPS IPSec ESP Offload Support"
+	help
+	  Support for IPSec ESP offload to Mediatek Network Processing
+	  Unit. Alleviate host CPU's loading by offloading IPSec ESP
+	  encapulation and decapulation to NPU.
+
+config MTK_TOPS_IPSEC_AH
+	depends on MTK_TOPS_SUPPORT
+	select MTK_TOPS_IPSEC
+	bool "Mediatek TOPS IPSec AH Offload Support"
+	help
+	  Support for IPSec AH offload to Mediatek Network Processing
+	  Unit. Alleviate host CPU's loading by offloading IPSec AH
+	  encapulation and decapulation to NPU.
+
+config TOPS_TNL_NUM
+	int "Mediatek TOPS Tunnel Count"
+	depends on MTK_TOPS_SUPPORT
+	help
+	  Configuration for tunnel count for Tunnel Offload Processing
+	  System. This value should be 2 ^ TOPS_TNL_MAP_BIT.
+
+config TOPS_TNL_MAP_BIT
+	int "Mediatek TOPS Tunnel Map Bit"
+	depends on MTK_TOPS_SUPPORT
+	help
+	  Configuration for tunnel map bit for Tunnel Offload Processing
+	  System. This value is log of TOPS_TNL_NUM.

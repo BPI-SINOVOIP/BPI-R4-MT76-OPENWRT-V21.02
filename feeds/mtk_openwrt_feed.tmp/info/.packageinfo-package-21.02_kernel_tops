@@ -1,0 +1,82 @@
+Source-Makefile: feeds/mtk_openwrt_feed/package-21.02/kernel/tops/Makefile
+
+Package: tops-rebb-fw-release
+Version: 1
+Depends: +libc +USE_GLIBC:librt +USE_GLIBC:libpthread @MTK_TOPS_RELEASE_TARGET kmod-tops-release
+Conflicts: 
+Menu-Depends: 
+Provides: 
+Section: firmware
+Category: Firmware
+Repository: base
+Title: Mediatek Tunnel Offload Processor System ReBB Release Firmware
+Maintainer: 
+Source: 
+Type: ipkg
+Description:   Support for Mediatek Tunnel Offload Processor System ReBB release firmware.
+  The firmware offload and accerlerate APMCU's tunnel protocols traffic.
+  Available offload tunnel include L2oGRE, L2TP.
+
+@@
+
+Package: kmod-tops
+Submenu: Drivers
+Default: y
+Version: <LINUX_VERSION>-1
+Depends: @TARGET_mediatek_mt7988
+Conflicts: 
+Menu-Depends: 
+Provides: 
+Section: kernel
+Category: MTK Properties
+Title: Mediatek Tunnel Offload Processor System
+Maintainer: 
+Source: 
+Type: ipkg
+Description:   Support for MTK Tunnel Offload Processor System. This system reduces the
+  loading of APMCU's tunnel protocol overhead and improve tunnel protocol's
+  throughput.
+
+@@
+Config:
+	source "feeds/mtk_openwrt_feed/package-21.02/kernel/tops/Config.in"
+@@
+
+Package: kmod-tops-release
+Submenu: Drivers
+Version: <LINUX_VERSION>-1
+Depends: @MTK_TOPS_RELEASE_TARGET kmod-mediatek_hnat kmod-tops +kmod-pce +@KERNEL_RELAY
+Conflicts: 
+Menu-Depends: 
+Provides: 
+Section: kernel
+Category: MTK Properties
+Title: MTK Tunnel Offload Processor System Kernel Driver
+Maintainer: 
+Source: 
+Type: ipkg
+Description:   Support for MTK Tunnel Offload Processor System Released Driver. The driver
+  controls the TOPS system to reduce the loading of tunnel protocol processing
+  in APMCU.
+
+@@
+
+Package: kmod-tops-release-autoload
+Submenu: Drivers
+Version: <LINUX_VERSION>-1
+Depends: kmod-tops-release +kmod-pce-autoload
+Conflicts: 
+Menu-Depends: 
+Provides: 
+Section: kernel
+Category: MTK Properties
+Title: MTK Tunnel Offload Processor System Auto Load
+Maintainer: 
+Source: 
+Type: ipkg
+Description:   Support for MTK Tunnel Offload Processor System auto load on system
+  boot process.
+
+@@
+
+

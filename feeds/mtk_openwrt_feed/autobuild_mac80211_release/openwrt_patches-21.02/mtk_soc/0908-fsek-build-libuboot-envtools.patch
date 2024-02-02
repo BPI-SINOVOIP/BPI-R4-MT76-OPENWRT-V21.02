@@ -1,0 +1,15 @@
+diff --git a/package/boot/uboot-envtools/Makefile b/package/boot/uboot-envtools/Makefile
+index a9eccec..0728b88 100644
+--- a/package/boot/uboot-envtools/Makefile
++++ b/package/boot/uboot-envtools/Makefile
+@@ -76,4 +76,10 @@ define Package/uboot-envtools/install
+ 	)
+ endef
+ 
++define Build/InstallDev
++	ln -sf $(PKG_BUILD_DIR)/include $(STAGING_DIR)/usr/include/u-boot
++	$(CP) $(PKG_BUILD_DIR)/tools/env/lib.a  $(STAGING_DIR)/usr/lib/libuboot-envtools.a
++	$(CP) $(PKG_BUILD_DIR)/tools/env/fw_env.h $(STAGING_DIR)/usr/include/fw_env.h
++endef
++
+ $(eval $(call BuildPackage,uboot-envtools))

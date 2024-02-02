@@ -1,0 +1,117 @@
+From 488e67b3592e6e36622e12a212739d4d74710a56 Mon Sep 17 00:00:00 2001
+From: "fancy.liu" <fancy.liu@mediatek.com>
+Date: Thu, 30 Nov 2023 16:42:59 +0800
+Subject: [PATCH 37/37] mtk: mac80211: Add CSA action frame tx when channel
+ switch on AP
+
+Description:
+To meet spec requirement.
+
+802.11-2020
+11.8.8.2 Selecting and advertising a new channel in a non-DMG infrastructure BSS
+11.8.8.6 Selecting and advertising a new channel in a DMG BSS
+-
+An AP shall inform associated STAs that the AP is moving to a new channel and shall maintain the association by advertising the switch using Channel Switch Announcement elements in Beacon frames, Probe Response frames, and Channel Switch Announcement frames until the intended channel switch time.
+
+Signed-off-by: fancy.liu <fancy.liu@mediatek.com>
+---
+ net/mac80211/cfg.c  | 28 ++++++++++++++--------------
+ net/mac80211/util.c | 10 +++++++---
+ 2 files changed, 21 insertions(+), 17 deletions(-)
+
+diff --git a/net/mac80211/cfg.c b/net/mac80211/cfg.c
+index 2072a7a..1554849 100644
+--- a/net/mac80211/cfg.c
++++ b/net/mac80211/cfg.c
+@@ -3790,15 +3790,7 @@ static int ieee80211_set_csa_beacon(struct ieee80211_sub_if_data *sdata,
+ 		 * immediately too.  If we would delay the switch
+ 		 * until the next TBTT, we would have to set the probe
+ 		 * response here.
+-		 *
+-		 * TODO: A channel switch with count <= 1 without
+-		 * sending a CSA action frame is kind of useless,
+-		 * because the clients won't know we're changing
+-		 * channels.  The action frame must be implemented
+-		 * either here or in the userspace.
+ 		 */
+-		if (params->count <= 1)
+-			break;
+ 
+ 		if ((params->n_counter_offsets_beacon >
+ 		     IEEE80211_MAX_CNTDWN_COUNTERS_NUM) ||
+@@ -3814,14 +3806,20 @@ static int ieee80211_set_csa_beacon(struct ieee80211_sub_if_data *sdata,
+ 		csa.n_counter_offsets_presp = params->n_counter_offsets_presp;
+ 		csa.count = params->count;
+ 
+-		err = ieee80211_assign_beacon(sdata, &sdata->deflink,
+-					      &params->beacon_csa, &csa,
+-					      NULL, changed);
+-		if (err < 0) {
+-			ieee80211_free_next_beacon(&sdata->deflink);
+-			return err;
++		/* see comments in the NL80211_IFTYPE_AP block */
++		if (params->count > 1) {
++			err = ieee80211_assign_beacon(sdata, &sdata->deflink,
++							  &params->beacon_csa, &csa,
++							  NULL, changed);
++
++			if (err < 0) {
++				ieee80211_free_next_beacon(&sdata->deflink);
++				return err;
++			}
+ 		}
+ 
++		ieee80211_send_action_csa(sdata, params);
++
+ 		break;
+ 	case NL80211_IFTYPE_ADHOC:
+ 		if (!sdata->vif.cfg.ibss_joined)
+@@ -3893,6 +3891,7 @@ static int ieee80211_set_csa_beacon(struct ieee80211_sub_if_data *sdata,
+ 		}
+ #endif
+ 	default:
++		sdata_info(sdata, "Won't send CSA for vif.type:%d.\n", sdata->vif.type);
+ 		return -EOPNOTSUPP;
+ 	}
+ 
+@@ -3982,6 +3981,7 @@ __ieee80211_channel_switch(struct wiphy *wiphy, struct net_device *dev,
+ 
+ 	err = ieee80211_set_csa_beacon(sdata, params, &changed);
+ 	if (err) {
++		sdata_info(sdata, "failed to set csa in beacon.\n");
+ 		ieee80211_link_unreserve_chanctx(&sdata->deflink);
+ 		goto out;
+ 	}
+diff --git a/net/mac80211/util.c b/net/mac80211/util.c
+index 5bd40c6..f36a5c0 100644
+--- a/net/mac80211/util.c
++++ b/net/mac80211/util.c
+@@ -4515,8 +4515,11 @@ int ieee80211_send_action_csa(struct ieee80211_sub_if_data *sdata,
+ 	u8 *pos;
+ 
+ 	if (sdata->vif.type != NL80211_IFTYPE_ADHOC &&
+-	    sdata->vif.type != NL80211_IFTYPE_MESH_POINT)
++	    sdata->vif.type != NL80211_IFTYPE_MESH_POINT &&
++	    sdata->vif.type != NL80211_IFTYPE_AP) {
++		sdata_info(sdata, "Not allow csa action on vif.type:%d.\n", sdata->vif.type);
+ 		return -EOPNOTSUPP;
++	}
+ 
+ 	skb = dev_alloc_skb(local->tx_headroom + hdr_len +
+ 			    5 + /* channel switch announcement element */
+@@ -4533,9 +4536,10 @@ int ieee80211_send_action_csa(struct ieee80211_sub_if_data *sdata,
+ 
+ 	eth_broadcast_addr(mgmt->da);
+ 	memcpy(mgmt->sa, sdata->vif.addr, ETH_ALEN);
+-	if (ieee80211_vif_is_mesh(&sdata->vif)) {
++	if (sdata->vif.type == NL80211_IFTYPE_AP ||
++	    sdata->vif.type == NL80211_IFTYPE_MESH_POINT) {
+ 		memcpy(mgmt->bssid, sdata->vif.addr, ETH_ALEN);
+-	} else {
++	} else if (sdata->vif.type == NL80211_IFTYPE_ADHOC) {
+ 		struct ieee80211_if_ibss *ifibss = &sdata->u.ibss;
+ 		memcpy(mgmt->bssid, ifibss->bssid, ETH_ALEN);
+ 	}
+-- 
+2.18.0
+

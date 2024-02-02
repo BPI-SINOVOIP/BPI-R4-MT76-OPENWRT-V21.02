@@ -1,0 +1,75 @@
+From 840d6089ac85c927bfb6f352c826ec3bd3846104 Mon Sep 17 00:00:00 2001
+From: TomLiu <tomml.liu@mediatek.com>
+Date: Thu, 11 Aug 2022 18:09:45 -0700
+Subject: [PATCH 32/76] wifi: mt76: mt7915: Add mu dump support
+
+Change-Id: I521214f3feb6f0d528a9f550255050ffd1ec96d2
+---
+ mt7915/vendor.c | 24 ++++++++++++++++++++++++
+ mt7915/vendor.h |  1 +
+ 2 files changed, 25 insertions(+)
+
+diff --git a/mt7915/vendor.c b/mt7915/vendor.c
+index 635c218..25509d6 100644
+--- a/mt7915/vendor.c
++++ b/mt7915/vendor.c
+@@ -37,6 +37,7 @@ wireless_ctrl_policy[NUM_MTK_VENDOR_ATTRS_WIRELESS_CTRL] = {
+ static const struct nla_policy
+ mu_ctrl_policy[NUM_MTK_VENDOR_ATTRS_MU_CTRL] = {
+ 	[MTK_VENDOR_ATTR_MU_CTRL_ONOFF] = {.type = NLA_U8 },
++	[MTK_VENDOR_ATTR_MU_CTRL_DUMP] = {.type = NLA_U8 },
+ };
+ 
+ static const struct nla_policy
+@@ -1007,6 +1008,28 @@ static int mt7915_vendor_mu_ctrl(struct wiphy *wiphy,
+ 	return 0;
+ }
+ 
++
++static int
++mt7915_vendor_mu_ctrl_dump(struct wiphy *wiphy, struct wireless_dev *wdev,
++			     struct sk_buff *skb, const void *data, int data_len,
++			     unsigned long *storage)
++{
++	struct ieee80211_hw *hw = wiphy_to_ieee80211_hw(wiphy);
++	struct mt7915_phy *phy = mt7915_hw_phy(hw);
++	int len = 0;
++
++	if (*storage == 1)
++		return -ENOENT;
++	*storage = 1;
++
++	if (nla_put_u8(skb, MTK_VENDOR_ATTR_MU_CTRL_DUMP, phy->muru_onoff))
++		return -ENOMEM;
++	len += 1;
++
++	return len;
++}
++
++
+ static int
+ mt7915_vendor_phy_capa_ctrl_dump(struct wiphy *wiphy, struct wireless_dev *wdev,
+ 			     struct sk_buff *skb, const void *data, int data_len,
+@@ -1193,6 +1216,7 @@ static const struct wiphy_vendor_command mt7915_vendor_commands[] = {
+ 		.flags = WIPHY_VENDOR_CMD_NEED_NETDEV |
+ 			WIPHY_VENDOR_CMD_NEED_RUNNING,
+ 		.doit = mt7915_vendor_mu_ctrl,
++		.dumpit = mt7915_vendor_mu_ctrl_dump,
+ 		.policy = mu_ctrl_policy,
+ 		.maxattr = MTK_VENDOR_ATTR_MU_CTRL_MAX,
+ 	},
+diff --git a/mt7915/vendor.h b/mt7915/vendor.h
+index 0c96377..d8e23d3 100644
+--- a/mt7915/vendor.h
++++ b/mt7915/vendor.h
+@@ -72,6 +72,7 @@ enum mtk_vendor_attr_mu_ctrl {
+ 	MTK_VENDOR_ATTR_MU_CTRL_UNSPEC,
+ 
+ 	MTK_VENDOR_ATTR_MU_CTRL_ONOFF,
++	MTK_VENDOR_ATTR_MU_CTRL_DUMP,
+ 
+ 	/* keep last */
+ 	NUM_MTK_VENDOR_ATTRS_MU_CTRL,
+-- 
+2.18.0
+

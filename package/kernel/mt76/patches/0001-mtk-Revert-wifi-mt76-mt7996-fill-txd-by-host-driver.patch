@@ -1,0 +1,45 @@
+From 79c8a28d435df3a9b0da8145675ea8d70a4de463 Mon Sep 17 00:00:00 2001
+From: Shayne Chen <shayne.chen@mediatek.com>
+Date: Tue, 19 Sep 2023 11:21:23 +0800
+Subject: [PATCH 01/25] mtk: Revert "wifi: mt76: mt7996: fill txd by host
+ driver"
+
+This reverts commit 325a0c4931990d553487024c4f76c776492bdcc2.
+---
+ mt7996/mac.c | 13 +++++++++----
+ 1 file changed, 9 insertions(+), 4 deletions(-)
+
+diff --git a/mt7996/mac.c b/mt7996/mac.c
+index 53258488..db06a982 100644
+--- a/mt7996/mac.c
++++ b/mt7996/mac.c
+@@ -937,8 +937,11 @@ int mt7996_tx_prepare_skb(struct mt76_dev *mdev, void *txwi_ptr,
+ 		return id;
+ 
+ 	pid = mt76_tx_status_skb_add(mdev, wcid, tx_info->skb);
+-	mt7996_mac_write_txwi(dev, txwi_ptr, tx_info->skb, wcid, key,
+-			      pid, qid, 0);
++	memset(txwi_ptr, 0, MT_TXD_SIZE);
++	/* Transmit non qos data by 802.11 header and need to fill txd by host*/
++	if (!is_8023 || pid >= MT_PACKET_ID_FIRST)
++		mt7996_mac_write_txwi(dev, txwi_ptr, tx_info->skb, wcid, key,
++				      pid, qid, 0);
+ 
+ 	txp = (struct mt76_connac_txp_common *)(txwi + MT_TXD_SIZE);
+ 	for (i = 0; i < nbuf; i++) {
+@@ -955,8 +958,10 @@ int mt7996_tx_prepare_skb(struct mt76_dev *mdev, void *txwi_ptr,
+ 	}
+ 	txp->fw.nbuf = nbuf;
+ 
+-	txp->fw.flags =
+-		cpu_to_le16(MT_CT_INFO_FROM_HOST | MT_CT_INFO_APPLY_TXD);
++	txp->fw.flags = cpu_to_le16(MT_CT_INFO_FROM_HOST);
++
++	if (!is_8023 || pid >= MT_PACKET_ID_FIRST)
++		txp->fw.flags |= cpu_to_le16(MT_CT_INFO_APPLY_TXD);
+ 
+ 	if (!key)
+ 		txp->fw.flags |= cpu_to_le16(MT_CT_INFO_NONE_CIPHER_FRAME);
+-- 
+2.18.0
+

@@ -1,0 +1,35 @@
+--- a/net/l2tp/l2tp_core.c
++++ b/net/l2tp/l2tp_core.c
+@@ -1068,6 +1068,10 @@ int l2tp_xmit_skb(struct l2tp_session *s
+ 	int udp_len;
+ 	int ret = NET_XMIT_SUCCESS;
+ 
++#if IS_ENABLED(CONFIG_NF_FLOW_TABLE)
++	skb_reset_inner_headers(skb);
++#endif
++
+ 	/* Check that there's enough headroom in the skb to insert IP,
+ 	 * UDP and L2TP headers. If not enough, expand it to
+ 	 * make room. Adjust truesize.
+--- a/drivers/net/ethernet/mediatek/mtk_hnat/hnat_nf_hook.c
++++ b/drivers/net/ethernet/mediatek/mtk_hnat/hnat_nf_hook.c
+@@ -865,7 +865,8 @@ mtk_hnat_ipv4_nf_pre_routing(void *priv,
+ 	 * and it's L2TP flow, then do not bind.
+ 	 */
+ 	if (skb_hnat_iface(skb) == FOE_MAGIC_GE_VIRTUAL
+-	    && skb->dev->netdev_ops->ndo_flow_offload_check) {
++	    && skb->dev->netdev_ops->ndo_flow_offload_check
++	    && !mtk_tnl_decap_offload) {
+ 		skb->dev->netdev_ops->ndo_flow_offload_check(&hw_path);
+ 
+ 		if (hw_path.flags & FLOW_OFFLOAD_PATH_TNL)
+--- a/net/l2tp/l2tp_ppp.c
++++ b/net/l2tp/l2tp_ppp.c
+@@ -356,6 +356,7 @@ static int l2tp_ppp_flow_offload_check(s
+ 		return -EINVAL;
+ 
+ 	path->flags |= FLOW_OFFLOAD_PATH_TNL;
++	path->tnl_type = FLOW_OFFLOAD_TNL_L2TP_V2;
+ 
+ 	return 0;
+ }

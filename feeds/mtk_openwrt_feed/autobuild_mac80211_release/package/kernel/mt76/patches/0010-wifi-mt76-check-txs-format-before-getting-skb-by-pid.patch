@@ -1,0 +1,53 @@
+From 1313d834950f271d6b84dd71b89535e6e9af1095 Mon Sep 17 00:00:00 2001
+From: Evelyn Tsai <evelyn.tsai@mediatek.com>
+Date: Fri, 8 Dec 2023 07:35:39 +0800
+Subject: [PATCH 10/76] wifi: mt76: check txs format before getting skb by pid
+
+The PPDU TxS does not include the error bit so it cannot use to report
+status to mac80211.
+
+Signed-off-by: Peter Chiu <chui-hao.chiu@mediatek.com>
+---
+ mt76_connac2_mac.h | 5 +++++
+ mt76_connac_mac.c  | 7 +++++--
+ 2 files changed, 10 insertions(+), 2 deletions(-)
+
+diff --git a/mt76_connac2_mac.h b/mt76_connac2_mac.h
+index bd2a924..5f13211 100644
+--- a/mt76_connac2_mac.h
++++ b/mt76_connac2_mac.h
+@@ -32,6 +32,11 @@ enum {
+ 	MT_LMAC_PSMP0,
+ };
+ 
++enum {
++	MT_TXS_MPDU_FMT = 0,
++	MT_TXS_PPDU_FMT = 2,
++};
++
+ #define MT_TX_FREE_MSDU_CNT		GENMASK(9, 0)
+ #define MT_TX_FREE_WLAN_ID		GENMASK(23, 14)
+ #define MT_TX_FREE_COUNT		GENMASK(12, 0)
+diff --git a/mt76_connac_mac.c b/mt76_connac_mac.c
+index 630c640..31d2474 100644
+--- a/mt76_connac_mac.c
++++ b/mt76_connac_mac.c
+@@ -714,10 +714,13 @@ bool mt76_connac2_mac_add_txs_skb(struct mt76_dev *dev, struct mt76_wcid *wcid,
+ 				  int pid, __le32 *txs_data)
+ {
+ 	struct sk_buff_head list;
+-	struct sk_buff *skb;
++	struct sk_buff *skb = NULL;
+ 
+ 	mt76_tx_status_lock(dev, &list);
+-	skb = mt76_tx_status_skb_get(dev, wcid, pid, &list);
++
++	if (le32_get_bits(txs_data[0], MT_TXS0_TXS_FORMAT) == MT_TXS_MPDU_FMT)
++		skb = mt76_tx_status_skb_get(dev, wcid, pid, &list);
++
+ 	if (skb) {
+ 		struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
+ 
+-- 
+2.18.0
+

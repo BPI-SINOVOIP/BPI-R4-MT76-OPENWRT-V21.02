@@ -1,0 +1,81 @@
+From c0969da768d20a041dd505bb57afe74abef989a5 Mon Sep 17 00:00:00 2001
+From: StanleyYP Wang <StanleyYP.Wang@mediatek.com>
+Date: Fri, 22 Dec 2023 17:27:10 +0800
+Subject: [PATCH 1043/1044] mtk: wifi: mt76: mt7996: add background radar hw
+ cap check
+
+Signed-off-by: StanleyYP Wang <StanleyYP.Wang@mediatek.com>
+---
+ mt7996/debugfs.c |  5 +++++
+ mt7996/init.c    |  7 ++++---
+ mt7996/mt7996.h  | 20 ++++++++++++++++++++
+ 3 files changed, 29 insertions(+), 3 deletions(-)
+
+diff --git a/mt7996/debugfs.c b/mt7996/debugfs.c
+index 67c6bd09..cceabf00 100644
+--- a/mt7996/debugfs.c
++++ b/mt7996/debugfs.c
+@@ -257,6 +257,11 @@ mt7996_rdd_monitor(struct seq_file *s, void *data)
+ 
+ 	mutex_lock(&dev->mt76.mutex);
+ 
++	if (!mt7996_get_background_radar_cap(dev)) {
++		seq_puts(s, "no background radar capability\n");
++		goto out;
++	}
++
+ 	if (!cfg80211_chandef_valid(chandef)) {
+ 		ret = -EINVAL;
+ 		goto out;
+diff --git a/mt7996/init.c b/mt7996/init.c
+index f2258541..00063e72 100644
+--- a/mt7996/init.c
++++ b/mt7996/init.c
+@@ -393,9 +393,10 @@ mt7996_init_wiphy(struct ieee80211_hw *hw, struct mtk_wed_device *wed)
+ 
+ 	wiphy_ext_feature_set(wiphy, NL80211_EXT_FEATURE_OPERATING_CHANNEL_VALIDATION);
+ 	wiphy_ext_feature_set(wiphy, NL80211_EXT_FEATURE_BEACON_PROTECTION);
+-	if (!mdev->dev->of_node ||
+-	    !of_property_read_bool(mdev->dev->of_node,
+-				   "mediatek,disable-radar-background"))
++	if (mt7996_get_background_radar_cap(phy->dev) &&
++	    (!mdev->dev->of_node ||
++	     !of_property_read_bool(mdev->dev->of_node,
++				    "mediatek,disable-radar-background")))
+ 		wiphy_ext_feature_set(wiphy,
+ 				      NL80211_EXT_FEATURE_RADAR_BACKGROUND);
+ 
+diff --git a/mt7996/mt7996.h b/mt7996/mt7996.h
+index bde0c086..95db69ca 100644
+--- a/mt7996/mt7996.h
++++ b/mt7996/mt7996.h
+@@ -599,6 +599,26 @@ mt7996_band_valid(struct mt7996_dev *dev, u8 band)
+ 	return band == MT_BAND0 || band == MT_BAND2;
+ }
+ 
++static inline bool
++mt7996_get_background_radar_cap(struct mt7996_dev *dev)
++{
++	switch (mt76_chip(&dev->mt76)) {
++	case 0x7990:
++		if (dev->chip_sku == MT7996_SKU_233)
++			return 0;
++		break;
++	case 0x7992:
++		if (dev->chip_sku == MT7992_SKU_23 ||
++		    dev->chip_sku == MT7992_SKU_24)
++			return 0;
++		break;
++	default:
++		break;
++	}
++
++	return 1;
++}
++
+ extern const struct ieee80211_ops mt7996_ops;
+ extern struct pci_driver mt7996_pci_driver;
+ extern struct pci_driver mt7996_hif_driver;
+-- 
+2.18.0
+

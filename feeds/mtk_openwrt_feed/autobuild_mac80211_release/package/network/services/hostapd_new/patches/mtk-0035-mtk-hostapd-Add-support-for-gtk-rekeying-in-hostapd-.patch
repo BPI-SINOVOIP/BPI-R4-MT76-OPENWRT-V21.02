@@ -1,0 +1,45 @@
+From aa65ab579fe3c032034b2ca641a91aa62285b59f Mon Sep 17 00:00:00 2001
+From: mtk23510 <rudra.shahi@mediatek.com>
+Date: Fri, 26 May 2023 14:52:35 +0800
+Subject: [PATCH 35/54] mtk: hostapd: Add support for gtk rekeying in hostapd
+ cli
+
+Signed-off-by: mtk23510 <rudra.shahi@mediatek.com>
+---
+ hostapd/hostapd_cli.c | 13 +++++++++++++
+ 1 file changed, 13 insertions(+)
+
+diff --git a/hostapd/hostapd_cli.c b/hostapd/hostapd_cli.c
+index 6d763f327..363a6bb93 100644
+--- a/hostapd/hostapd_cli.c
++++ b/hostapd/hostapd_cli.c
+@@ -1256,6 +1256,15 @@ static int hostapd_cli_cmd_update_beacon(struct wpa_ctrl *ctrl, int argc,
+ }
+ 
+ 
++#ifdef CONFIG_TESTING_OPTIONS
++static int hostapd_cli_cmd_rekey_gtk(struct wpa_ctrl *ctrl, int argc,
++				      char *argv[])
++{
++	return wpa_ctrl_command(ctrl, "REKEY_GTK");
++}
++#endif
++
++
+ static int hostapd_cli_cmd_vendor(struct wpa_ctrl *ctrl, int argc, char *argv[])
+ {
+ 	char cmd[256];
+@@ -1761,6 +1770,10 @@ static const struct hostapd_cli_cmd hostapd_cli_commands[] = {
+ 	  "= disable hostapd on current interface" },
+ 	{ "update_beacon", hostapd_cli_cmd_update_beacon, NULL,
+ 	  "= update Beacon frame contents\n"},
++#ifdef CONFIG_TESTING_OPTIONS
++	{ "rekey_gtk", hostapd_cli_cmd_rekey_gtk, NULL,
++	  "= rekey gtk\n"},
++#endif
+ 	{ "erp_flush", hostapd_cli_cmd_erp_flush, NULL,
+ 	  "= drop all ERP keys"},
+ 	{ "log_level", hostapd_cli_cmd_log_level, NULL,
+-- 
+2.18.0
+

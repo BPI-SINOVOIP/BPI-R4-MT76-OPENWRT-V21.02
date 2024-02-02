@@ -1,0 +1,26 @@
+From 6d8d4dc76ac31cfdecef99c72aad6a65f963d4a0 Mon Sep 17 00:00:00 2001
+From: Sam Shih <sam.shih@mediatek.com>
+Date: Fri, 2 Jun 2023 13:06:14 +0800
+Subject: [PATCH] 
+ [spi-and-storage][999-2331-mtd-spinand-macronix-suppress-mx35lf1ge4ab-warning-log.patch]
+
+---
+ drivers/mtd/nand/spi/macronix.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/mtd/nand/spi/macronix.c b/drivers/mtd/nand/spi/macronix.c
+index 25319b4f8..d3ae24ecc 100644
+--- a/drivers/mtd/nand/spi/macronix.c
++++ b/drivers/mtd/nand/spi/macronix.c
+@@ -86,7 +86,7 @@ static int mx35lf1ge4ab_ecc_get_status(struct spinand_device *spinand,
+ 		if (mx35lf1ge4ab_get_eccsr(spinand, &eccsr))
+ 			return nand->eccreq.strength;
+ 
+-		if (WARN_ON(eccsr > nand->eccreq.strength || !eccsr))
++		if (eccsr > nand->eccreq.strength || !eccsr)
+ 			return nand->eccreq.strength;
+ 
+ 		return eccsr;
+-- 
+2.34.1
+

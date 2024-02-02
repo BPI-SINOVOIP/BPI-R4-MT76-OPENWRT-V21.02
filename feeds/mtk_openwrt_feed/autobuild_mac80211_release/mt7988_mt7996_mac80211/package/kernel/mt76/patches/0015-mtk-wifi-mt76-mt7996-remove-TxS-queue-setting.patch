@@ -1,0 +1,31 @@
+From bc44fe965f13651643513532a746aca9ed04362b Mon Sep 17 00:00:00 2001
+From: Peter Chiu <chui-hao.chiu@mediatek.com>
+Date: Fri, 22 Dec 2023 17:01:36 +0800
+Subject: [PATCH 15/25] mtk: wifi: mt76: mt7996: remove TxS queue setting
+
+Remove TxS queue setting which is set by FW.
+
+Signed-off-by: Peter Chiu <chui-hao.chiu@mediatek.com>
+---
+ mt7996/init.c | 5 -----
+ 1 file changed, 5 deletions(-)
+
+diff --git a/mt7996/init.c b/mt7996/init.c
+index 50dcce9f..1c464e2f 100644
+--- a/mt7996/init.c
++++ b/mt7996/init.c
+@@ -506,11 +506,6 @@ void mt7996_mac_init(struct mt7996_dev *dev)
+ 		mt76_rmw_field(dev, i, MT_LED_GPIO_SEL_MASK, 4);
+ 	}
+ 
+-	/* txs report queue */
+-	mt76_rmw_field(dev, MT_DMA_TCRF1(0), MT_DMA_TCRF1_QIDX, 0);
+-	mt76_rmw_field(dev, MT_DMA_TCRF1(1), MT_DMA_TCRF1_QIDX, 6);
+-	mt76_rmw_field(dev, MT_DMA_TCRF1(2), MT_DMA_TCRF1_QIDX, 0);
+-
+ 	/* rro module init */
+ 	if (is_mt7996(&dev->mt76))
+ 		mt7996_mcu_set_rro(dev, UNI_RRO_SET_PLATFORM_TYPE, 2);
+-- 
+2.18.0
+

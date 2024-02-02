@@ -1,0 +1,31 @@
+From 55ac95bb1f783c203750968bfe762d1e63f99321 Mon Sep 17 00:00:00 2001
+From: mtk27745 <rex.lu@mediatek.com>
+Date: Mon, 6 Nov 2023 10:16:34 +0800
+Subject: [PATCH 2017/2028] mtk: wifi: mt76: mt7996: Remove wed rro ring add
+ napi at init state
+
+without this patch. rro ring will add napi at initial state. once rro ring add napi, it will have chance to be used by host driver. if host driver accessed the ring data, it will cause some issue.
+
+Signed-off-by: mtk27745 <rex.lu@mediatek.com>
+---
+ dma.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/dma.c b/dma.c
+index 5ddb6be9..698f39c0 100644
+--- a/dma.c
++++ b/dma.c
+@@ -1093,6 +1093,10 @@ mt76_dma_init(struct mt76_dev *dev,
+ 	init_completion(&dev->mmio.wed_reset_complete);
+ 
+ 	mt76_for_each_q_rx(dev, i) {
++		if (mtk_wed_device_active(&dev->mmio.wed) &&
++		    mt76_queue_is_wed_rro(&dev->q_rx[i]))
++			continue;
++
+ 		netif_napi_add(&dev->napi_dev, &dev->napi[i], poll);
+ 		mt76_dma_rx_fill(dev, &dev->q_rx[i]);
+ 		napi_enable(&dev->napi[i]);
+-- 
+2.18.0
+

@@ -1,0 +1,28 @@
+From 905b93728d4804e6b988e93c5a6ba3bf2810bba6 Mon Sep 17 00:00:00 2001
+From: Bo Jiao <Bo.Jiao@mediatek.com>
+Date: Mon, 6 Nov 2023 16:37:23 +0800
+Subject: [PATCH 2016/2028] mtk: wifi: mt76: mt7996: add SER state log for
+ debug.
+
+Signed-off-by: Bo Jiao <Bo.Jiao@mediatek.com>
+---
+ mt7996/mac.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/mt7996/mac.c b/mt7996/mac.c
+index 751a960a..5ffc6018 100644
+--- a/mt7996/mac.c
++++ b/mt7996/mac.c
+@@ -2158,6 +2158,9 @@ void mt7996_coredump(struct mt7996_dev *dev, u8 state)
+ 
+ void mt7996_reset(struct mt7996_dev *dev)
+ {
++	dev_info(dev->mt76.dev, "%s SER recovery state: 0x%08x\n",
++		 wiphy_name(dev->mt76.hw->wiphy), READ_ONCE(dev->recovery.state));
++
+ 	if (!dev->recovery.hw_init_done)
+ 		return;
+ 
+-- 
+2.18.0
+

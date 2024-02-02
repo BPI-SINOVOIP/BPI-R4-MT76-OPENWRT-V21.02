@@ -1,0 +1,39 @@
+diff --git a/package/network/services/hostapd/Makefile b/package/network/services/hostapd/Makefile
+index 17f9dcb5..61410069 100644
+--- a/package/network/services/hostapd/Makefile
++++ b/package/network/services/hostapd/Makefile
+@@ -80,7 +80,7 @@ ifneq ($(CONFIG_DRIVER_11AX_SUPPORT),)
+ endif
+ 
+ CORE_DEPENDS = +ucode +libubus +libucode +ucode-mod-fs +ucode-mod-nl80211 +ucode-mod-rtnl +ucode-mod-ubus +ucode-mod-uloop +libblobmsg-json +libudebug
+-OPENSSL_DEPENDS = +PACKAGE_$(1):libopenssl +PACKAGE_$(1):libopenssl-legacy
++OPENSSL_DEPENDS = +PACKAGE_$(1):libopenssl
+ 
+ DRIVER_MAKEOPTS= \
+ 	CONFIG_ACS=y CONFIG_DRIVER_NL80211=y \
+@@ -498,7 +498,6 @@ define Package/hostapd-utils
+   TITLE:=IEEE 802.1x Authenticator (utils)
+   URL:=http://hostap.epitest.fi/
+   DEPENDS:=@$(subst $(space),||,$(foreach pkg,$(HOSTAPD_PROVIDERS),PACKAGE_$(pkg)))
+-  VARIANT:=*
+ endef
+ 
+ define Package/hostapd-utils/description
+@@ -512,7 +511,6 @@ define Package/wpa-cli
+   SUBMENU:=WirelessAPD
+   DEPENDS:=@$(subst $(space),||,$(foreach pkg,$(SUPPLICANT_PROVIDERS),PACKAGE_$(pkg)))
+   TITLE:=WPA Supplicant command line control utility
+-  VARIANT:=*
+ endef
+ 
+ define Package/eapol-test/Default
+@@ -719,6 +717,9 @@ define Package/hostapd-common/install
+ 	$(INSTALL_DATA) ./files/wpad.json $(1)/etc/capabilities
+ 	$(INSTALL_DATA) ./files/common.uc $(1)/usr/share/hostap/
+ 	$(INSTALL_DATA) ./files/wdev.uc $(1)/usr/share/hostap/
++	[ ! -d $(STAGING_DIR)/usr/include/wpa_ctrl.h ] && $(CP) -f $(PKG_BUILD_DIR)/src/common/wpa_ctrl.h $(STAGING_DIR)/usr/include
++	[ ! -d $(STAGING_DIR)/usr/lib/wpa_ctrl.o ] && $(CP) -f $(PKG_BUILD_DIR)/build/hostapd/src/common/wpa_ctrl.o $(STAGING_DIR)/usr/lib
++	[ ! -d $(STAGING_DIR)/usr/lib/os_unix.o ] && $(CP) -f $(PKG_BUILD_DIR)/build/hostapd/src/utils/os_unix.o $(STAGING_DIR)/usr/lib
+ endef
+ 
+ define Package/hostapd/install

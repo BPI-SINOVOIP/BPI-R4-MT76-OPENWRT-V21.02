@@ -1,0 +1,58 @@
+menu "TOPS Configurations"
+	depends on PACKAGE_kmod-tops
+
+choice
+	prompt "TOPS Build Target"
+	default MTK_TOPS_RELEASE_TARGET
+	help
+	  select TOPS build target. Either release or developing target
+
+config MTK_TOPS_RELEASE_TARGET
+	bool "MTK TOPS Release Target Build"
+	select PACKAGE_kmod-tops-release
+	select PACKAGE_tops-rebb-fw-release
+
+config MTK_TOPS_DEV_TARGET
+	bool "MTK TOPS Developing Target Build"
+	select PACKAGE_kmod-tops-dev
+	select PACKAGE_tops-rebb-fw-dev
+endchoice
+
+choice
+	prompt "TOPS Tunnel Count"
+	default TOPS_TNL_32
+	help
+	  Determine number of TOPS tunnel
+
+config TOPS_TNL_32
+	bool "32 TOPS Tunnel"
+
+endchoice
+
+source "$(SOURCE)/Config-protocols.in"
+
+config TOPS_TNL_NUM
+	int
+	default 32 if TOPS_TNL_32
+	help
+	  Configuration for TOPS tunnel count. This value should be
+	  2 ^ TOPS_TNL_MAP_BIT.
+
+config TOPS_TNL_MAP_BIT
+	int
+	default 5 if TOPS_TNL_32
+	help
+	  Configuration for TOPS tunnel map bit. This value should be the log
+	  of TOPS_TNL_NUM.
+
+config TOPS_TNL_TYPE_NUM
+	int
+	default 32 if TARGET_mediatek_mt7988
+
+config MTK_TOPS_SECURE_FW
+	bool "TOPS Secure Firmware Load"
+	default n
+	help
+	  Enable TOPS secure firmware load
+
+endmenu

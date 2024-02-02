@@ -1,0 +1,83 @@
+Source-Makefile: feeds/routing/bird1-openwrt/Makefile
+
+Package: bird1-ipv4-uci
+Submenu: Routing and Redirection
+Version: 0.3-5
+Depends: +libc +USE_GLIBC:librt +USE_GLIBC:libpthread +libuci +uci +bird1-ipv4
+Conflicts: 
+Menu-Depends: 
+Provides: 
+Section: net
+Category: Network
+Repository: base
+Title: The BIRD UCI module (v1.6) (IPv4)
+Maintainer: Roger Pueyo Centelles <roger.pueyo@guifi.net>
+Source: 
+License: GPL-3.0-or-later
+Type: ipkg
+Description: The BIRD UCI module (v1.6) (IPv4)
+https://github.com/openwrt/bird1-openwrt/
+Roger Pueyo Centelles <roger.pueyo@guifi.net>
+@@
+
+Package: bird1-ipv6-uci
+Submenu: Routing and Redirection
+Version: 0.3-5
+Depends: +libc +USE_GLIBC:librt +USE_GLIBC:libpthread +libuci +uci +bird1-ipv6
+Conflicts: 
+Menu-Depends: 
+Provides: 
+Section: net
+Category: Network
+Repository: base
+Title: The BIRD UCI module (v1.6) (IPv6)
+Maintainer: Roger Pueyo Centelles <roger.pueyo@guifi.net>
+Source: 
+License: GPL-3.0-or-later
+Type: ipkg
+Description: The BIRD UCI module (v1.6) (IPv6)
+https://github.com/openwrt/bird1-openwrt/
+Roger Pueyo Centelles <roger.pueyo@guifi.net>
+@@
+
+Package: luci-app-bird1-ipv4
+Submenu: 3. Applications
+Version: 0.3-5
+Depends: +libc +USE_GLIBC:librt +USE_GLIBC:libpthread +luci-base +luci-compat +bird1-ipv4-uci
+Conflicts: 
+Menu-Depends: 
+Provides: 
+Section: luci
+Category: LuCI
+Repository: base
+Title: LuCI support for BIRD (v1.6) (IPv4)
+Maintainer: Roger Pueyo Centelles <roger.pueyo@guifi.net>
+Source: 
+License: GPL-3.0-or-later
+Type: ipkg
+Description: LuCI support for BIRD (v1.6) (IPv4)
+https://github.com/openwrt/bird1-openwrt/
+Roger Pueyo Centelles <roger.pueyo@guifi.net>
+@@
+
+Package: luci-app-bird1-ipv6
+Submenu: 3. Applications
+Version: 0.3-5
+Depends: +libc +USE_GLIBC:librt +USE_GLIBC:libpthread +luci-base +luci-compat +bird1-ipv6-uci
+Conflicts: 
+Menu-Depends: 
+Provides: 
+Section: luci
+Category: LuCI
+Repository: base
+Title: LuCI support for BIRD (v1.6) (IPv6)
+Maintainer: Roger Pueyo Centelles <roger.pueyo@guifi.net>
+Source: 
+License: GPL-3.0-or-later
+Type: ipkg
+Description: LuCI support for BIRD (v1.6) (IPv6)
+https://github.com/openwrt/bird1-openwrt/
+Roger Pueyo Centelles <roger.pueyo@guifi.net>
+@@
+
+

@@ -1,0 +1,41 @@
+From d3fd0f1eb8faa1dae61798758b62d027dd7ad958 Mon Sep 17 00:00:00 2001
+From: mtk27745 <rex.lu@mediatek.com>
+Date: Tue, 23 May 2023 12:06:29 +0800
+Subject: [PATCH 2006/2028] mtk: wifi: mt76: add SER support for wed3.0
+
+---
+ dma.c         | 5 +++--
+ mt7996/mmio.c | 1 +
+ 2 files changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/dma.c b/dma.c
+index 16cb23b4..dfce79fa 100644
+--- a/dma.c
++++ b/dma.c
+@@ -910,8 +910,9 @@ mt76_dma_rx_reset(struct mt76_dev *dev, enum mt76_rxq_id qid)
+ 
+ 	/* reset WED rx queues */
+ 	mt76_dma_wed_setup(dev, q, true);
+-
+-	if (!mt76_queue_is_wed_tx_free(q)) {
++	if (!mt76_queue_is_wed_tx_free(q) &&
++	    !(mt76_queue_is_wed_rro(q) &&
++	    mtk_wed_device_active(&dev->mmio.wed))) {
+ 		mt76_dma_sync_idx(dev, q);
+ 		mt76_dma_rx_fill(dev, q);
+ 	}
+diff --git a/mt7996/mmio.c b/mt7996/mmio.c
+index 4814897c..488f5103 100644
+--- a/mt7996/mmio.c
++++ b/mt7996/mmio.c
+@@ -302,6 +302,7 @@ out:
+ 
+ 	return ret;
+ }
++
+ #endif
+ 
+ int mt7996_mmio_wed_init(struct mt7996_dev *dev, void *pdev_ptr,
+-- 
+2.18.0
+

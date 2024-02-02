@@ -1,0 +1,19 @@
+#!/bin/sh /etc/rc.common
+
+#the priority of TOPS driver is 51
+START=52
+
+USE_PROCD=1
+NAME=tops-tool
+PROG=/usr/sbin/tops-tool
+
+start_service() {
+	procd_open_instance
+	procd_set_param command "${PROG}" save_dump /log/tops
+	procd_set_param respawn
+	procd_close_instance
+}
+
+stop_service() {
+	service_stop "${PROG}"
+}

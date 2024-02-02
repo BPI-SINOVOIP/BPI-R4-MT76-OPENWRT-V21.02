@@ -1,0 +1,675 @@
+From b02c3175d355a3cf35924ad866e92013d62dbc66 Mon Sep 17 00:00:00 2001
+From: StanleyYP Wang <StanleyYP.Wang@mediatek.com>
+Date: Fri, 24 Mar 2023 23:35:30 +0800
+Subject: [PATCH 1007/1044] mtk: wifi: mt76: mt7996: add txpower support
+
+Signed-off-by: StanleyYP Wang <StanleyYP.Wang@mediatek.com>
+---
+ mt7996/eeprom.c      |  34 +++++
+ mt7996/eeprom.h      |  42 ++++++
+ mt7996/mcu.h         |   2 +
+ mt7996/mt7996.h      |   1 +
+ mt7996/mtk_debugfs.c | 326 +++++++++++++++++++++++++++++++++++++++++++
+ mt7996/mtk_mcu.c     |  23 +++
+ mt7996/mtk_mcu.h     |  92 ++++++++++++
+ mt7996/regs.h        |  29 ++--
+ 8 files changed, 538 insertions(+), 11 deletions(-)
+
+diff --git a/mt7996/eeprom.c b/mt7996/eeprom.c
+index 3aeffdfb..acc33cfe 100644
+--- a/mt7996/eeprom.c
++++ b/mt7996/eeprom.c
+@@ -404,3 +404,37 @@ s8 mt7996_eeprom_get_power_delta(struct mt7996_dev *dev, int band)
+ 
+ 	return val & MT_EE_RATE_DELTA_SIGN ? delta : -delta;
+ }
++
++const u8 mt7996_sku_group_len[] = {
++	[SKU_CCK] = 4,
++	[SKU_OFDM] = 8,
++	[SKU_HT20] = 8,
++	[SKU_HT40] = 9,
++	[SKU_VHT20] = 12,
++	[SKU_VHT40] = 12,
++	[SKU_VHT80] = 12,
++	[SKU_VHT160] = 12,
++	[SKU_HE26] = 12,
++	[SKU_HE52] = 12,
++	[SKU_HE106] = 12,
++	[SKU_HE242] = 12,
++	[SKU_HE484] = 12,
++	[SKU_HE996] = 12,
++	[SKU_HE2x996] = 12,
++	[SKU_EHT26] = 16,
++	[SKU_EHT52] = 16,
++	[SKU_EHT106] = 16,
++	[SKU_EHT242] = 16,
++	[SKU_EHT484] = 16,
++	[SKU_EHT996] = 16,
++	[SKU_EHT2x996] = 16,
++	[SKU_EHT4x996] = 16,
++	[SKU_EHT26_52] = 16,
++	[SKU_EHT26_106] = 16,
++	[SKU_EHT484_242] = 16,
++	[SKU_EHT996_484] = 16,
++	[SKU_EHT996_484_242] = 16,
++	[SKU_EHT2x996_484] = 16,
++	[SKU_EHT3x996] = 16,
++	[SKU_EHT3x996_484] = 16,
++};
+diff --git a/mt7996/eeprom.h b/mt7996/eeprom.h
+index 849b8bca..23d4929d 100644
+--- a/mt7996/eeprom.h
++++ b/mt7996/eeprom.h
+@@ -123,4 +123,46 @@ mt7996_get_channel_group_6g(int channel)
+ 	return DIV_ROUND_UP(channel - 29, 32);
+ }
+ 
++enum mt7996_sku_rate_group {
++	SKU_CCK,
++	SKU_OFDM,
++
++	SKU_HT20,
++	SKU_HT40,
++
++	SKU_VHT20,
++	SKU_VHT40,
++	SKU_VHT80,
++	SKU_VHT160,
++
++	SKU_HE26,
++	SKU_HE52,
++	SKU_HE106,
++	SKU_HE242,
++	SKU_HE484,
++	SKU_HE996,
++	SKU_HE2x996,
++
++	SKU_EHT26,
++	SKU_EHT52,
++	SKU_EHT106,
++	SKU_EHT242,
++	SKU_EHT484,
++	SKU_EHT996,
++	SKU_EHT2x996,
++	SKU_EHT4x996,
++	SKU_EHT26_52,
++	SKU_EHT26_106,
++	SKU_EHT484_242,
++	SKU_EHT996_484,
++	SKU_EHT996_484_242,
++	SKU_EHT2x996_484,
++	SKU_EHT3x996,
++	SKU_EHT3x996_484,
++
++	MAX_SKU_RATE_GROUP_NUM,
++};
++
++extern const u8 mt7996_sku_group_len[MAX_SKU_RATE_GROUP_NUM];
++
+ #endif
+diff --git a/mt7996/mcu.h b/mt7996/mcu.h
+index 4f4994d8..887d9b49 100644
+--- a/mt7996/mcu.h
++++ b/mt7996/mcu.h
+@@ -911,6 +911,7 @@ struct tx_power_ctrl {
+ 		bool ate_mode_enable;
+ 		bool percentage_ctrl_enable;
+ 		bool bf_backoff_enable;
++		u8 show_info_category;
+ 		u8 power_drop_level;
+ 	};
+ 	u8 band_idx;
+@@ -924,6 +925,7 @@ enum {
+ 	UNI_TXPOWER_BACKOFF_POWER_LIMIT_CTRL = 3,
+ 	UNI_TXPOWER_POWER_LIMIT_TABLE_CTRL = 4,
+ 	UNI_TXPOWER_ATE_MODE_CTRL = 6,
++	UNI_TXPOWER_SHOW_INFO = 7,
+ };
+ 
+ enum {
+diff --git a/mt7996/mt7996.h b/mt7996/mt7996.h
+index 384157c8..18a6a46d 100644
+--- a/mt7996/mt7996.h
++++ b/mt7996/mt7996.h
+@@ -609,6 +609,7 @@ int mt7996_mcu_set_tx_power_ctrl(struct mt7996_phy *phy, u8 power_ctrl_id, u8 da
+ #ifdef CONFIG_NL80211_TESTMODE
+ void mt7996_tm_rf_test_event(struct mt7996_dev *dev, struct sk_buff *skb);
+ #endif
++int mt7996_mcu_get_tx_power_info(struct mt7996_phy *phy, u8 category, void *event);
+ int mt7996_mcu_set_scs(struct mt7996_phy *phy, u8 enable);
+ void mt7996_mcu_scs_sta_poll(struct work_struct *work);
+ 
+diff --git a/mt7996/mtk_debugfs.c b/mt7996/mtk_debugfs.c
+index 360c4c7e..c9b835b2 100644
+--- a/mt7996/mtk_debugfs.c
++++ b/mt7996/mtk_debugfs.c
+@@ -2417,6 +2417,328 @@ mt7996_scs_enable_set(void *data, u64 val)
+ DEFINE_DEBUGFS_ATTRIBUTE(fops_scs_enable, NULL,
+ 			 mt7996_scs_enable_set, "%lld\n");
+ 
++static int
++mt7996_txpower_level_set(void *data, u64 val)
++{
++	struct mt7996_phy *phy = data;
++	int ret;
++
++	if (val > 100)
++		return -EINVAL;
++
++	ret = mt7996_mcu_set_tx_power_ctrl(phy, UNI_TXPOWER_PERCENTAGE_CTRL, !!val);
++	if (ret)
++		return ret;
++
++	return mt7996_mcu_set_tx_power_ctrl(phy, UNI_TXPOWER_PERCENTAGE_DROP_CTRL, val);
++}
++
++DEFINE_DEBUGFS_ATTRIBUTE(fops_txpower_level, NULL,
++			 mt7996_txpower_level_set, "%lld\n");
++
++static ssize_t
++mt7996_get_txpower_info(struct file *file, char __user *user_buf,
++			size_t count, loff_t *ppos)
++{
++	struct mt7996_phy *phy = file->private_data;
++	struct mt7996_mcu_txpower_event *event;
++	struct txpower_basic_info *basic_info;
++	static const size_t size = 2048;
++	int len = 0;
++	ssize_t ret;
++	char *buf;
++
++	buf = kzalloc(size, GFP_KERNEL);
++	event = kzalloc(sizeof(*event), GFP_KERNEL);
++	if (!buf || !event) {
++		ret = -ENOMEM;
++		goto out;
++	}
++
++	ret = mt7996_mcu_get_tx_power_info(phy, BASIC_INFO, event);
++	if (ret ||
++	    le32_to_cpu(event->basic_info.category) != UNI_TXPOWER_BASIC_INFO)
++		goto out;
++
++	basic_info = &event->basic_info;
++
++	len += scnprintf(buf + len, size - len,
++			 "======================== BASIC INFO ========================\n");
++	len += scnprintf(buf + len, size - len, "    Band Index: %d, Channel Band: %d\n",
++			 basic_info->band_idx, basic_info->band);
++	len += scnprintf(buf + len, size - len, "    PA Type: %s\n",
++			 basic_info->is_epa ? "ePA" : "iPA");
++	len += scnprintf(buf + len, size - len, "    LNA Type: %s\n",
++			 basic_info->is_elna ? "eLNA" : "iLNA");
++
++	len += scnprintf(buf + len, size - len,
++			 "------------------------------------------------------------\n");
++	len += scnprintf(buf + len, size - len, "    SKU: %s\n",
++			 basic_info->sku_enable ? "enable" : "disable");
++	len += scnprintf(buf + len, size - len, "    Percentage Control: %s\n",
++			 basic_info->percentage_ctrl_enable ? "enable" : "disable");
++	len += scnprintf(buf + len, size - len, "    Power Drop: %d [dBm]\n",
++			 basic_info->power_drop_level >> 1);
++	len += scnprintf(buf + len, size - len, "    Backoff: %s\n",
++			 basic_info->bf_backoff_enable ? "enable" : "disable");
++	len += scnprintf(buf + len, size - len, "    TX Front-end Loss:  %d, %d, %d, %d\n",
++			 basic_info->front_end_loss_tx[0], basic_info->front_end_loss_tx[1],
++			 basic_info->front_end_loss_tx[2], basic_info->front_end_loss_tx[3]);
++	len += scnprintf(buf + len, size - len, "    RX Front-end Loss:  %d, %d, %d, %d\n",
++			 basic_info->front_end_loss_rx[0], basic_info->front_end_loss_rx[1],
++			 basic_info->front_end_loss_rx[2], basic_info->front_end_loss_rx[3]);
++	len += scnprintf(buf + len, size - len,
++			 "    MU TX Power Mode:  %s\n",
++			 basic_info->mu_tx_power_manual_enable ? "manual" : "auto");
++	len += scnprintf(buf + len, size - len,
++			 "    MU TX Power (Auto / Manual): %d / %d [0.5 dBm]\n",
++			 basic_info->mu_tx_power_auto, basic_info->mu_tx_power_manual);
++	len += scnprintf(buf + len, size - len,
++			 "    Thermal Compensation:  %s\n",
++			 basic_info->thermal_compensate_enable ? "enable" : "disable");
++	len += scnprintf(buf + len, size - len,
++			 "    Theraml Compensation Value: %d\n",
++			 basic_info->thermal_compensate_value);
++
++	ret = simple_read_from_buffer(user_buf, count, ppos, buf, len);
++
++out:
++	kfree(buf);
++	kfree(event);
++	return ret;
++}
++
++static const struct file_operations mt7996_txpower_info_fops = {
++	.read = mt7996_get_txpower_info,
++	.open = simple_open,
++	.owner = THIS_MODULE,
++	.llseek = default_llseek,
++};
++
++#define mt7996_txpower_puts(rate)							\
++({											\
++	len += scnprintf(buf + len, size - len, "%-21s:", #rate " (TMAC)");		\
++	for (i = 0; i < mt7996_sku_group_len[SKU_##rate]; i++, offs++)			\
++		len += scnprintf(buf + len, size - len, " %6d",				\
++				 event->phy_rate_info.frame_power[offs][band_idx]);	\
++	len += scnprintf(buf + len, size - len, "\n");					\
++})
++
++static ssize_t
++mt7996_get_txpower_sku(struct file *file, char __user *user_buf,
++		       size_t count, loff_t *ppos)
++{
++	struct mt7996_phy *phy = file->private_data;
++	struct mt7996_dev *dev = phy->dev;
++	struct mt7996_mcu_txpower_event *event;
++	u8 band_idx = phy->mt76->band_idx;
++	static const size_t size = 5120;
++	int i, offs = 0, len = 0;
++	ssize_t ret;
++	char *buf;
++	u32 reg;
++
++	buf = kzalloc(size, GFP_KERNEL);
++	event = kzalloc(sizeof(*event), GFP_KERNEL);
++	if (!buf || !event) {
++		ret = -ENOMEM;
++		goto out;
++	}
++
++	ret = mt7996_mcu_get_tx_power_info(phy, PHY_RATE_INFO, event);
++	if (ret ||
++	    le32_to_cpu(event->phy_rate_info.category) != UNI_TXPOWER_PHY_RATE_INFO)
++		goto out;
++
++	len += scnprintf(buf + len, size - len,
++			 "\nPhy %d TX Power Table (Channel %d)\n",
++			 band_idx, phy->mt76->chandef.chan->hw_value);
++	len += scnprintf(buf + len, size - len, "%-21s  %6s %6s %6s %6s\n",
++			 " ", "1m", "2m", "5m", "11m");
++	mt7996_txpower_puts(CCK);
++
++	len += scnprintf(buf + len, size - len,
++			 "%-21s  %6s %6s %6s %6s %6s %6s %6s %6s\n",
++			 " ", "6m", "9m", "12m", "18m", "24m", "36m", "48m",
++			 "54m");
++	mt7996_txpower_puts(OFDM);
++
++	len += scnprintf(buf + len, size - len,
++			 "%-21s  %6s %6s %6s %6s %6s %6s %6s %6s\n",
++			 " ", "mcs0", "mcs1", "mcs2", "mcs3", "mcs4",
++			 "mcs5", "mcs6", "mcs7");
++	mt7996_txpower_puts(HT20);
++
++	len += scnprintf(buf + len, size - len,
++			 "%-21s  %6s %6s %6s %6s %6s %6s %6s %6s %6s\n",
++			 " ", "mcs0", "mcs1", "mcs2", "mcs3", "mcs4", "mcs5",
++			 "mcs6", "mcs7", "mcs32");
++	mt7996_txpower_puts(HT40);
++
++	len += scnprintf(buf + len, size - len,
++			 "%-21s  %6s %6s %6s %6s %6s %6s %6s %6s %6s %6s %6s %6s\n",
++			 " ", "mcs0", "mcs1", "mcs2", "mcs3", "mcs4", "mcs5",
++			 "mcs6", "mcs7", "mcs8", "mcs9", "mcs10", "mcs11");
++	mt7996_txpower_puts(VHT20);
++	mt7996_txpower_puts(VHT40);
++	mt7996_txpower_puts(VHT80);
++	mt7996_txpower_puts(VHT160);
++	mt7996_txpower_puts(HE26);
++	mt7996_txpower_puts(HE52);
++	mt7996_txpower_puts(HE106);
++	mt7996_txpower_puts(HE242);
++	mt7996_txpower_puts(HE484);
++	mt7996_txpower_puts(HE996);
++	mt7996_txpower_puts(HE2x996);
++
++	len += scnprintf(buf + len, size - len,
++			 "%-21s  %6s %6s %6s %6s %6s %6s %6s %6s ",
++			 " ", "mcs0", "mcs1", "mcs2", "mcs3", "mcs4", "mcs5", "mcs6", "mcs7");
++	len += scnprintf(buf + len, size - len,
++			 "%6s %6s %6s %6s %6s %6s %6s %6s\n",
++			 "mcs8", "mcs9", "mcs10", "mcs11", "mcs12", "mcs13", "mcs14", "mcs15");
++	mt7996_txpower_puts(EHT26);
++	mt7996_txpower_puts(EHT52);
++	mt7996_txpower_puts(EHT106);
++	mt7996_txpower_puts(EHT242);
++	mt7996_txpower_puts(EHT484);
++	mt7996_txpower_puts(EHT996);
++	mt7996_txpower_puts(EHT2x996);
++	mt7996_txpower_puts(EHT4x996);
++	mt7996_txpower_puts(EHT26_52);
++	mt7996_txpower_puts(EHT26_106);
++	mt7996_txpower_puts(EHT484_242);
++	mt7996_txpower_puts(EHT996_484);
++	mt7996_txpower_puts(EHT996_484_242);
++	mt7996_txpower_puts(EHT2x996_484);
++	mt7996_txpower_puts(EHT3x996);
++	mt7996_txpower_puts(EHT3x996_484);
++
++	len += scnprintf(buf + len, size - len, "\nePA Gain: %d\n",
++			 event->phy_rate_info.epa_gain);
++	len += scnprintf(buf + len, size - len, "Max Power Bound: %d\n",
++			 event->phy_rate_info.max_power_bound);
++	len += scnprintf(buf + len, size - len, "Min Power Bound: %d\n",
++			 event->phy_rate_info.min_power_bound);
++
++	reg = MT_WF_PHYDFE_BAND_TPC_CTRL_STAT0(band_idx);
++	len += scnprintf(buf + len, size - len,
++			 "BBP TX Power (target power from TMAC)  : %6ld [0.5 dBm]\n",
++			 mt76_get_field(dev, reg, MT_WF_PHY_TPC_POWER_TMAC));
++	len += scnprintf(buf + len, size - len,
++			 "BBP TX Power (target power from RMAC)  : %6ld [0.5 dBm]\n",
++			 mt76_get_field(dev, reg, MT_WF_PHY_TPC_POWER_RMAC));
++	len += scnprintf(buf + len, size - len,
++			 "BBP TX Power (TSSI module power input)  : %6ld [0.5 dBm]\n",
++			 mt76_get_field(dev, reg, MT_WF_PHY_TPC_POWER_TSSI));
++
++	ret = simple_read_from_buffer(user_buf, count, ppos, buf, len);
++
++out:
++	kfree(buf);
++	kfree(event);
++	return ret;
++}
++
++static const struct file_operations mt7996_txpower_sku_fops = {
++	.read = mt7996_get_txpower_sku,
++	.open = simple_open,
++	.owner = THIS_MODULE,
++	.llseek = default_llseek,
++};
++
++#define mt7996_txpower_path_puts(rate, arr_length)					\
++({											\
++	len += scnprintf(buf + len, size - len, "%-23s:", #rate " (TMAC)");		\
++	for (i = 0; i < arr_length; i++, offs++)					\
++		len += scnprintf(buf + len, size - len, " %4d",				\
++				 event->backoff_table_info.frame_power[offs]);		\
++	len += scnprintf(buf + len, size - len, "\n");					\
++})
++
++static ssize_t
++mt7996_get_txpower_path(struct file *file, char __user *user_buf,
++		       size_t count, loff_t *ppos)
++{
++	struct mt7996_phy *phy = file->private_data;
++	struct mt7996_mcu_txpower_event *event;
++	static const size_t size = 5120;
++	int i, offs = 0, len = 0;
++	ssize_t ret;
++	char *buf;
++
++	buf = kzalloc(size, GFP_KERNEL);
++	event = kzalloc(sizeof(*event), GFP_KERNEL);
++	if (!buf || !event) {
++		ret = -ENOMEM;
++		goto out;
++	}
++
++	ret = mt7996_mcu_get_tx_power_info(phy, BACKOFF_TABLE_INFO, event);
++	if (ret ||
++	    le32_to_cpu(event->phy_rate_info.category) != UNI_TXPOWER_BACKOFF_TABLE_SHOW_INFO)
++		goto out;
++
++	len += scnprintf(buf + len, size - len, "\n%*c", 25, ' ');
++	len += scnprintf(buf + len, size - len, "1T1S/2T1S/3T1S/4T1S/5T1S/2T2S/3T2S/4T2S/5T2S/"
++			 "3T3S/4T3S/5T3S/4T4S/5T4S/5T5S\n");
++
++	mt7996_txpower_path_puts(CCK, 5);
++	mt7996_txpower_path_puts(OFDM, 5);
++	mt7996_txpower_path_puts(BF-OFDM, 4);
++
++	mt7996_txpower_path_puts(RU26, 15);
++	mt7996_txpower_path_puts(BF-RU26, 15);
++	mt7996_txpower_path_puts(RU52, 15);
++	mt7996_txpower_path_puts(BF-RU52, 15);
++	mt7996_txpower_path_puts(RU26_52, 15);
++	mt7996_txpower_path_puts(BF-RU26_52, 15);
++	mt7996_txpower_path_puts(RU106, 15);
++	mt7996_txpower_path_puts(BF-RU106, 15);
++	mt7996_txpower_path_puts(RU106_52, 15);
++	mt7996_txpower_path_puts(BF-RU106_52, 15);
++
++	mt7996_txpower_path_puts(BW20/RU242, 15);
++	mt7996_txpower_path_puts(BF-BW20/RU242, 15);
++	mt7996_txpower_path_puts(BW40/RU484, 15);
++	mt7996_txpower_path_puts(BF-BW40/RU484, 15);
++	mt7996_txpower_path_puts(RU242_484, 15);
++	mt7996_txpower_path_puts(BF-RU242_484, 15);
++	mt7996_txpower_path_puts(BW80/RU996, 15);
++	mt7996_txpower_path_puts(BF-BW80/RU996, 15);
++	mt7996_txpower_path_puts(RU484_996, 15);
++	mt7996_txpower_path_puts(BF-RU484_996, 15);
++	mt7996_txpower_path_puts(RU242_484_996, 15);
++	mt7996_txpower_path_puts(BF-RU242_484_996, 15);
++	mt7996_txpower_path_puts(BW160/RU996x2, 15);
++	mt7996_txpower_path_puts(BF-BW160/RU996x2, 15);
++	mt7996_txpower_path_puts(RU484_996x2, 15);
++	mt7996_txpower_path_puts(BF-RU484_996x2, 15);
++	mt7996_txpower_path_puts(RU996x3, 15);
++	mt7996_txpower_path_puts(BF-RU996x3, 15);
++	mt7996_txpower_path_puts(RU484_996x3, 15);
++	mt7996_txpower_path_puts(BF-RU484_996x3, 15);
++	mt7996_txpower_path_puts(BW320/RU996x4, 15);
++	mt7996_txpower_path_puts(BF-BW320/RU996x4, 15);
++
++	len += scnprintf(buf + len, size - len, "\nBackoff table: %s\n",
++			 event->backoff_table_info.backoff_en ? "enable" : "disable");
++
++	ret = simple_read_from_buffer(user_buf, count, ppos, buf, len);
++
++out:
++	kfree(buf);
++	kfree(event);
++	return ret;
++}
++
++static const struct file_operations mt7996_txpower_path_fops = {
++	.read = mt7996_get_txpower_path,
++	.open = simple_open,
++	.owner = THIS_MODULE,
++	.llseek = default_llseek,
++};
++
+ int mt7996_mtk_init_debugfs(struct mt7996_phy *phy, struct dentry *dir)
+ {
+ 	struct mt7996_dev *dev = phy->dev;
+@@ -2480,6 +2802,10 @@ int mt7996_mtk_init_debugfs(struct mt7996_phy *phy, struct dentry *dir)
+ 
+ 	debugfs_create_devm_seqfile(dev->mt76.dev, "tr_info", dir,
+ 				    mt7996_trinfo_read);
++	debugfs_create_file("txpower_level", 0600, dir, phy, &fops_txpower_level);
++	debugfs_create_file("txpower_info", 0600, dir, phy, &mt7996_txpower_info_fops);
++	debugfs_create_file("txpower_sku", 0600, dir, phy, &mt7996_txpower_sku_fops);
++	debugfs_create_file("txpower_path", 0600, dir, phy, &mt7996_txpower_path_fops);
+ 
+ 	debugfs_create_devm_seqfile(dev->mt76.dev, "wtbl_info", dir,
+ 				    mt7996_wtbl_read);
+diff --git a/mt7996/mtk_mcu.c b/mt7996/mtk_mcu.c
+index c16b25ab..e56ddd8f 100644
+--- a/mt7996/mtk_mcu.c
++++ b/mt7996/mtk_mcu.c
+@@ -12,8 +12,31 @@
+ 
+ #ifdef CONFIG_MTK_DEBUG
+ 
++int mt7996_mcu_get_tx_power_info(struct mt7996_phy *phy, u8 category, void *event)
++{
++	struct mt7996_dev *dev = phy->dev;
++	struct tx_power_ctrl req = {
++		.tag = cpu_to_le16(UNI_TXPOWER_SHOW_INFO),
++		.len = cpu_to_le16(sizeof(req) - 4),
++		.power_ctrl_id = UNI_TXPOWER_SHOW_INFO,
++		.show_info_category = category,
++		.band_idx = phy->mt76->band_idx,
++	};
++	struct sk_buff *skb;
++	int ret;
+ 
++	ret = mt76_mcu_send_and_get_msg(&dev->mt76,
++					MCU_WM_UNI_CMD_QUERY(TXPOWER),
++					&req, sizeof(req), true, &skb);
++	if (ret)
++		return ret;
+ 
++	memcpy(event, skb->data, sizeof(struct mt7996_mcu_txpower_event));
++
++	dev_kfree_skb(skb);
++
++	return 0;
++}
+ 
+ int mt7996_mcu_muru_dbg_info(struct mt7996_dev *dev, u16 item, u8 val)
+ {
+diff --git a/mt7996/mtk_mcu.h b/mt7996/mtk_mcu.h
+index 7f4d4e02..c30418ca 100644
+--- a/mt7996/mtk_mcu.h
++++ b/mt7996/mtk_mcu.h
+@@ -14,6 +14,98 @@ enum {
+ 	UNI_CMD_MURU_DBG_INFO = 0x18,
+ };
+ 
++struct txpower_basic_info {
++	u8 category;
++	u8 rsv1;
++
++	/* basic info */
++	u8 band_idx;
++	u8 band;
++
++	/* board type info */
++	bool is_epa;
++	bool is_elna;
++
++	/* power percentage info */
++	bool percentage_ctrl_enable;
++	s8 power_drop_level;
++
++	/* frond-end loss TX info */
++	s8 front_end_loss_tx[4];
++
++	/* frond-end loss RX info */
++	s8 front_end_loss_rx[4];
++
++	/* thermal info */
++	bool thermal_compensate_enable;
++	s8 thermal_compensate_value;
++	u8 rsv2;
++
++	/* TX power max/min limit info */
++	s8 max_power_bound;
++	s8 min_power_bound;
++
++	/* power limit info */
++	bool sku_enable;
++	bool bf_backoff_enable;
++
++	/* MU TX power info */
++	bool mu_tx_power_manual_enable;
++	s8 mu_tx_power_auto;
++	s8 mu_tx_power_manual;
++	u8 rsv3;
++};
++
++struct txpower_phy_rate_info {
++	u8 category;
++	u8 band_idx;
++	u8 band;
++	u8 epa_gain;
++
++	/* rate power info [dBm] */
++	s8 frame_power[MT7996_SKU_RATE_NUM][__MT_MAX_BAND];
++
++	/* TX power max/min limit info */
++	s8 max_power_bound;
++	s8 min_power_bound;
++	u8 rsv1;
++};
++
++struct txpower_backoff_table_info {
++	u8 category;
++	u8 band_idx;
++	u8 band;
++	u8 backoff_en;
++
++	s8 frame_power[MT7996_SKU_PATH_NUM];
++	u8 rsv[3];
++};
++
++struct mt7996_mcu_txpower_event {
++	u8 _rsv[4];
++
++	__le16 tag;
++	__le16 len;
++
++	union {
++		struct txpower_basic_info basic_info;
++		struct txpower_phy_rate_info phy_rate_info;
++		struct txpower_backoff_table_info backoff_table_info;
++	};
++};
++
++enum txpower_category {
++	BASIC_INFO,
++	BACKOFF_TABLE_INFO,
++	PHY_RATE_INFO,
++};
++
++enum txpower_event {
++	UNI_TXPOWER_BASIC_INFO = 0,
++	UNI_TXPOWER_BACKOFF_TABLE_SHOW_INFO = 3,
++	UNI_TXPOWER_PHY_RATE_INFO = 5,
++};
++
+ #endif
+ 
+ #endif
+diff --git a/mt7996/regs.h b/mt7996/regs.h
+index 4c20a67d..e94f9a90 100644
+--- a/mt7996/regs.h
++++ b/mt7996/regs.h
+@@ -693,24 +693,31 @@ enum offs_rev {
+ 						 ((_wf) << 16) + (ofs))
+ #define MT_WF_PHYRX_CSD_IRPI(_band, _wf)	MT_WF_PHYRX_CSD(_band, _wf, 0x1000)
+ 
+-/* PHYRX CTRL */
+-#define MT_WF_PHYRX_BAND_BASE			0x83080000
+-#define MT_WF_PHYRX_BAND(_band, ofs)		(MT_WF_PHYRX_BAND_BASE + \
++/* PHY CTRL */
++#define MT_WF_PHY_BAND_BASE			0x83080000
++#define MT_WF_PHY_BAND(_band, ofs)		(MT_WF_PHY_BAND_BASE + \
+ 						 ((_band) << 20) + (ofs))
+ 
+-#define MT_WF_PHYRX_BAND_GID_TAB_VLD0(_band)	MT_WF_PHYRX_BAND(_band, 0x1054)
+-#define MT_WF_PHYRX_BAND_GID_TAB_VLD1(_band)	MT_WF_PHYRX_BAND(_band, 0x1058)
+-#define MT_WF_PHYRX_BAND_GID_TAB_POS0(_band)	MT_WF_PHYRX_BAND(_band, 0x105c)
+-#define MT_WF_PHYRX_BAND_GID_TAB_POS1(_band)	MT_WF_PHYRX_BAND(_band, 0x1060)
+-#define MT_WF_PHYRX_BAND_GID_TAB_POS2(_band)	MT_WF_PHYRX_BAND(_band, 0x1064)
+-#define MT_WF_PHYRX_BAND_GID_TAB_POS3(_band)	MT_WF_PHYRX_BAND(_band, 0x1068)
++#define MT_WF_PHYRX_BAND_GID_TAB_VLD0(_band)	MT_WF_PHY_BAND(_band, 0x1054)
++#define MT_WF_PHYRX_BAND_GID_TAB_VLD1(_band)	MT_WF_PHY_BAND(_band, 0x1058)
++#define MT_WF_PHYRX_BAND_GID_TAB_POS0(_band)	MT_WF_PHY_BAND(_band, 0x105c)
++#define MT_WF_PHYRX_BAND_GID_TAB_POS1(_band)	MT_WF_PHY_BAND(_band, 0x1060)
++#define MT_WF_PHYRX_BAND_GID_TAB_POS2(_band)	MT_WF_PHY_BAND(_band, 0x1064)
++#define MT_WF_PHYRX_BAND_GID_TAB_POS3(_band)	MT_WF_PHY_BAND(_band, 0x1068)
+ 
+-#define MT_WF_PHYRX_BAND_RX_CTRL1(_band)	MT_WF_PHYRX_BAND(_band, 0x2004)
++/* PHYRX CTRL */
++#define MT_WF_PHYRX_BAND_RX_CTRL1(_band)	MT_WF_PHY_BAND(_band, 0x2004)
+ #define MT_WF_PHYRX_BAND_RX_CTRL1_IPI_EN	GENMASK(2, 0)
+ #define MT_WF_PHYRX_BAND_RX_CTRL1_STSCNT_EN	GENMASK(11, 9)
+ 
++/* PHYDFE CTRL */
++#define MT_WF_PHYDFE_BAND_TPC_CTRL_STAT0(_phy)	MT_WF_PHY_BAND(_phy, 0xe7a0)
++#define MT_WF_PHY_TPC_POWER_TMAC		GENMASK(15, 8)
++#define MT_WF_PHY_TPC_POWER_RMAC		GENMASK(23, 16)
++#define MT_WF_PHY_TPC_POWER_TSSI		GENMASK(31, 24)
++
+ /* PHYRX CSD BAND */
+-#define MT_WF_PHYRX_CSD_BAND_RXTD12(_band)		MT_WF_PHYRX_BAND(_band, 0x8230)
++#define MT_WF_PHYRX_CSD_BAND_RXTD12(_band)		MT_WF_PHY_BAND(_band, 0x8230)
+ #define MT_WF_PHYRX_CSD_BAND_RXTD12_IRPI_SW_CLR_ONLY	BIT(18)
+ #define MT_WF_PHYRX_CSD_BAND_RXTD12_IRPI_SW_CLR		BIT(29)
+ 
+-- 
+2.18.0
+

@@ -1,0 +1,102 @@
+diff --git a/package/boot/arm-trusted-firmware-mediatek/Makefile b/package/boot/arm-trusted-firmware-mediatek/Makefile
+index 98d421e..e128122 100644
+--- a/package/boot/arm-trusted-firmware-mediatek/Makefile
++++ b/package/boot/arm-trusted-firmware-mediatek/Makefile
+@@ -8,14 +8,21 @@
+ 
+ include $(TOPDIR)/rules.mk
+ 
++INTERNAL_BUILD:=1
++
+ PKG_NAME:=arm-trusted-firmware-mediatek
+ PKG_RELEASE:=$(AUTORELEASE)
+ 
+ PKG_SOURCE_PROTO:=git
++ifneq ($(INTERNAL_BUILD),)
++PKG_SOURCE_URL=https://gerrit.mediatek.inc/gateway/security/atf
++PKG_SOURCE_VERSION:=icb_rebb-main
++else
+ PKG_SOURCE_URL=https://github.com/mtk-openwrt/arm-trusted-firmware.git
+ PKG_SOURCE_DATE:=2020-11-09
+ PKG_SOURCE_VERSION:=03017334ccd8c0fac12e7db36749b95b9a7d745f
+ PKG_MIRROR_HASH:=b211b2f9143d4debc7ad8dc959cb606888af20af790855dd66c87e451b6a1bc7
++endif
+ 
+ PKG_MAINTAINER:=Daniel Golle <daniel@makrotopia.org>
+ 
+@@ -55,10 +62,31 @@ define Trusted-Firmware-A/Default
+   BUILD_SUBTARGET:=mt7622
+   PLAT:=mt7622
+   TFA_IMAGE:=bl2.img bl31.bin
++  TFA_PLAT_MAKE_FLAGS:=
+   BOOT_DEVICE:=
+   DDR_BLOB:=
+ endef
+ 
++define Trusted-Firmware-A/mt7986-snand
++  NAME:=MediaTek MT7986 (SPI-NAND)
++  DEPENDS:=+u-boot-mt7986 +libmbedtls
++  BUILD_SUBTARGET:=mt7986
++  PLAT:=mt7986
++  TFA_IMAGE:=bl2.img fip.bin
++  TFA_PLAT_MAKE_FLAGS:=NAND_TYPE=hsm:4k+256 FPGA=1
++  BOOT_DEVICE:=snand
++endef
++
++define Trusted-Firmware-A/mt7622-snand
++  NAME:=MediaTek MT7622 (SPI-NAND)
++  DEPENDS:=+u-boot-mt7622 +libmbedtls
++  BUILD_SUBTARGET:=mt7622
++  PLAT:=mt7622
++  TFA_IMAGE:=bl2.img fip.bin
++  TFA_PLAT_MAKE_FLAGS:=NAND_TYPE=2k+64
++  BOOT_DEVICE:=snand
++endef
++
+ define Trusted-Firmware-A/mt7622-nor-1ddr
+   NAME:=MediaTek MT7622 (SPI-NOR, 1x DDR3)
+   BOOT_DEVICE:=nor
+@@ -107,6 +135,36 @@ define Trusted-Firmware-A/mt7622-sdmmc-2ddr
+   DDR_BLOB:=2
+ endef
+ 
++ifneq ($(INTERNAL_BUILD),)
++TFA_TARGETS:= \
++	mt7986-snand \
++	mt7622-snand
++
++TFA_MAKE_FLAGS += \
++	BOOT_DEVICE=$(BOOT_DEVICE) \
++	$(TFA_PLAT_MAKE_FLAGS) \
++	BL33=$(BIN_DIR)/u-boot-$(PLAT)/u-boot.bin \
++	all \
++	fip
++
++define Build/Clean
++	rm -rf $(BIN_DIR)/atf-$(VARIANT)
++	$(call Build/Clean/Default)
++endef
++
++define Build/Compile/Trusted-Firmware-A
++	+$(MAKE) $(PKG_JOBS) -C $(PKG_BUILD_DIR) \
++		CROSS_COMPILE=$(TARGET_CROSS) \
++		PLAT=$(PLAT) \
++		$(TFA_MAKE_FLAGS)
++endef
++
++define Package/trusted-firmware-a/install/default
++	$(INSTALL_DIR) $(BIN_DIR)/atf-$(VARIANT)
++	$(CP) $(patsubst %,$(PKG_BUILD_DIR)/build/$(PLAT)/release/%,$(TFA_IMAGE)) $(BIN_DIR)/atf-$(VARIANT)/
++endef
++
++else
+ TFA_TARGETS:= \
+         mt7622-nor-1ddr \
+         mt7622-nor-2ddr \
+@@ -158,4 +216,6 @@ ifeq ($(BOOT_DEVICE),sdmmc)
+ endif
+ endef
+ 
++endif
++
+ $(eval $(call BuildPackage/Trusted-Firmware-A))

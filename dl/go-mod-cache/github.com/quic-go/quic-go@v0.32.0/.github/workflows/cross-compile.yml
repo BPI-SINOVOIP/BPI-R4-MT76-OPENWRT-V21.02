@@ -1,0 +1,22 @@
+on: [push, pull_request]
+jobs:
+  crosscompile:
+    strategy:
+      fail-fast: false
+      matrix:
+        go: [ "1.18.x", "1.19.x", "1.20.x" ]
+    runs-on: ubuntu-latest
+    name: "Cross Compilation (Go ${{matrix.go}})"
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-go@v3
+        with:
+          go-version: ${{ matrix.go }}
+      - name: Install build utils
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-multilib
+      - name: Install dependencies
+        run: go build example/main.go
+      - name: Run cross compilation
+        run: .github/workflows/cross-compile.sh

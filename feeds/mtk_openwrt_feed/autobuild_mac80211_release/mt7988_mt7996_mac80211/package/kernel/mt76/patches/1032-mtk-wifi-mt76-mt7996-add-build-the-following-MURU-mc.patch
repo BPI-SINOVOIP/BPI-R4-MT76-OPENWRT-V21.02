@@ -1,0 +1,189 @@
+From 89b3bd70258ed3f943c61e88288ef6f63160a579 Mon Sep 17 00:00:00 2001
+From: Howard Hsu <howard-yh.hsu@mediatek.com>
+Date: Tue, 13 Jun 2023 14:49:02 +0800
+Subject: [PATCH 1032/1044] mtk: wifi: mt76: mt7996: add build the following
+ MURU mcu command tlvs
+
+It includes the following tlvs:
+1. MURU tlv id 0x10, 0x33, 0xC8, 0xC9, 0xCA, 0xCC, 0xCD
+2. BF tlv id 0x1c
+
+---
+ mt7996/mcu.h         |  1 +
+ mt7996/mt7996.h      |  3 ++
+ mt7996/mtk_debugfs.c | 12 +++++++
+ mt7996/mtk_mcu.c     | 78 ++++++++++++++++++++++++++++++++++++++++++++
+ mt7996/mtk_mcu.h     | 14 ++++++++
+ 5 files changed, 108 insertions(+)
+
+diff --git a/mt7996/mcu.h b/mt7996/mcu.h
+index 347893c8..527c9c79 100644
+--- a/mt7996/mcu.h
++++ b/mt7996/mcu.h
+@@ -776,6 +776,7 @@ enum {
+ 	BF_MOD_EN_CTRL = 20,
+ 	BF_FBRPT_DBG_INFO_READ = 23,
+ 	BF_TXSND_INFO = 24,
++	BF_CFG_PHY = 28,
+ };
+ 
+ enum {
+diff --git a/mt7996/mt7996.h b/mt7996/mt7996.h
+index 33936f90..4a268a4e 100644
+--- a/mt7996/mt7996.h
++++ b/mt7996/mt7996.h
+@@ -815,6 +815,9 @@ void mt7996_mcu_rx_bf_event(struct mt7996_dev *dev, struct sk_buff *skb);
+ int mt7996_mcu_set_muru_fixed_rate_enable(struct mt7996_dev *dev, u8 action, int val);
+ int mt7996_mcu_set_muru_fixed_rate_parameter(struct mt7996_dev *dev, u8 action, void *para);
+ int mt7996_mcu_set_txbf_snd_info(struct mt7996_phy *phy, void *para);
++int mt7996_mcu_set_muru_cmd(struct mt7996_dev *dev, u16 action, int val);
++int mt7996_mcu_muru_set_prot_frame_thr(struct mt7996_dev *dev, u32 val);
++int mt7996_mcu_set_bypass_smthint(struct mt7996_phy *phy, u8 val);
+ #endif
+ 
+ #ifdef CONFIG_NET_MEDIATEK_SOC_WED
+diff --git a/mt7996/mtk_debugfs.c b/mt7996/mtk_debugfs.c
+index 651fb4a9..87c80828 100644
+--- a/mt7996/mtk_debugfs.c
++++ b/mt7996/mtk_debugfs.c
+@@ -3005,6 +3005,16 @@ static const struct file_operations fops_muru_fixed_group_rate = {
+ 	.llseek = default_llseek,
+ };
+ 
++static int mt7996_muru_prot_thr_set(void *data, u64 val)
++{
++	struct mt7996_phy *phy = data;
++
++	return mt7996_mcu_muru_set_prot_frame_thr(phy->dev, (u32)val);
++}
++
++DEFINE_DEBUGFS_ATTRIBUTE(fops_muru_prot_thr, NULL,
++			 mt7996_muru_prot_thr_set, "%lld\n");
++
+ int mt7996_mtk_init_debugfs(struct mt7996_phy *phy, struct dentry *dir)
+ {
+ 	struct mt7996_dev *dev = phy->dev;
+@@ -3100,6 +3110,8 @@ int mt7996_mtk_init_debugfs(struct mt7996_phy *phy, struct dentry *dir)
+ 	debugfs_create_file("bf_fbk_rpt", 0600, dir, phy, &fops_bf_fbk_rpt);
+ 	debugfs_create_file("pfmu_tag_read", 0600, dir, phy, &fops_bf_pfmu_tag_read);
+ 
++	debugfs_create_file("muru_prot_thr", 0200, dir, phy, &fops_muru_prot_thr);
++
+ 	return 0;
+ }
+ 
+diff --git a/mt7996/mtk_mcu.c b/mt7996/mtk_mcu.c
+index 67419cd9..b7d86384 100644
+--- a/mt7996/mtk_mcu.c
++++ b/mt7996/mtk_mcu.c
+@@ -906,4 +906,82 @@ error:
+ 	return -EINVAL;
+ }
+ 
++/**
++ * This function can be used to build the following commands
++ * MURU_SUTX_CTRL (0x10)
++ * SET_FORCE_MU (0x33)
++ * SET_MUDL_ACK_POLICY (0xC8)
++ * SET_TRIG_TYPE (0xC9)
++ * SET_20M_DYN_ALGO (0xCA)
++ * SET_CERT_MU_EDCA_OVERRIDE (0xCD)
++ */
++int mt7996_mcu_set_muru_cmd(struct mt7996_dev *dev, u16 action, int val)
++{
++	struct {
++		u8 _rsv[4];
++
++		__le16 tag;
++		__le16 len;
++
++		u8 config;
++		u8 rsv[3];
++	} __packed data = {
++		.tag = cpu_to_le16(action),
++		.len = cpu_to_le16(sizeof(data) - 4),
++		.config = (u8) val,
++	};
++
++	return mt76_mcu_send_msg(&dev->mt76, MCU_WM_UNI_CMD(MURU), &data, sizeof(data),
++				 false);
++}
++
++int mt7996_mcu_muru_set_prot_frame_thr(struct mt7996_dev *dev, u32 val)
++{
++	struct {
++		u8 _rsv[4];
++
++		__le16 tag;
++		__le16 len;
++
++		__le32 prot_frame_thr;
++	} __packed data = {
++		.tag = cpu_to_le16(UNI_CMD_MURU_PROT_FRAME_THR),
++		.len = cpu_to_le16(sizeof(data) - 4),
++		.prot_frame_thr = cpu_to_le32(val),
++	};
++
++	return mt76_mcu_send_msg(&dev->mt76, MCU_WM_UNI_CMD(MURU), &data, sizeof(data),
++				 false);
++}
++
++int mt7996_mcu_set_bypass_smthint(struct mt7996_phy *phy, u8 val)
++{
++#define BF_PHY_SMTH_INT_BYPASS 0
++#define BYPASS_VAL 1
++	struct mt7996_dev *dev = phy->dev;
++	struct {
++		u8 _rsv[4];
++
++		u16 tag;
++		u16 len;
++
++		u8 action;
++		u8 band_idx;
++		u8 smthintbypass;
++		u8 __rsv2[5];
++	} __packed data = {
++		.tag = cpu_to_le16(BF_CFG_PHY),
++		.len = cpu_to_le16(sizeof(data) - 4),
++		.action = BF_PHY_SMTH_INT_BYPASS,
++		.band_idx = phy->mt76->band_idx,
++		.smthintbypass = val,
++	};
++
++	if (val != BYPASS_VAL)
++		return -EINVAL;
++
++	return mt76_mcu_send_msg(&dev->mt76, MCU_WM_UNI_CMD(BF), &data, sizeof(data),
++				 true);
++}
++
+ #endif
+diff --git a/mt7996/mtk_mcu.h b/mt7996/mtk_mcu.h
+index 71c6684a..b061950c 100644
+--- a/mt7996/mtk_mcu.h
++++ b/mt7996/mtk_mcu.h
+@@ -119,6 +119,20 @@ enum {
+ 	EDCCA_FCC = 1,
+ 	EDCCA_ETSI = 2,
+ 	EDCCA_JAPAN = 3
++};
++
++enum {
++	UNI_CMD_MURU_SUTX_CTRL = 0x10,
++	UNI_CMD_MURU_FIXED_RATE_CTRL,
++	UNI_CMD_MURU_FIXED_GROUP_RATE_CTRL,
++	UNI_CMD_MURU_SET_FORCE_MU = 0x33,
++	UNI_CMD_MURU_MUNUAL_CONFIG = 0x64,
++	UNI_CMD_MURU_SET_MUDL_ACK_POLICY = 0xC9,
++	UNI_CMD_MURU_SET_TRIG_TYPE,
++	UNI_CMD_MURU_SET_20M_DYN_ALGO,
++	UNI_CMD_MURU_PROT_FRAME_THR = 0xCC,
++	UNI_CMD_MURU_SET_CERT_MU_EDCA_OVERRIDE,
++};
+ 
+ struct bf_pfmu_tag {
+ 	__le16 tag;
+-- 
+2.18.0
+

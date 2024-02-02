@@ -1,0 +1,62 @@
+package random
+
+import (
+	"crypto/rand"
+	"encoding/binary"
+	"io"
+	mRand "math/rand"
+	"sync"
+
+	"github.com/sagernet/sing/common"
+)
+
+const (
+	rngMax  = 1 << 63
+	rngMask = rngMax - 1
+)
+
+var initSeedOnce sync.Once
+
+func InitializeSeed() {
+	initSeedOnce.Do(initializeSeed)
+}
+
+func initializeSeed() {
+	var seed int64
+	common.Must(binary.Read(rand.Reader, binary.LittleEndian, &seed))
+	mRand.Seed(seed)
+}
+
+type Source struct {
+	io.Reader
+}
+
+func (s Source) Int63() int64 {
+	return s.Int64() & rngMask
+}
+
+func (s Source) Int64() int64 {
+	var num int64
+	common.Must(binary.Read(s, binary.BigEndian, &num))
+	return num
+}
+
+func (s Source) Uint64() uint64 {
+	var num uint64
+	common.Must(binary.Read(s, binary.BigEndian, &num))
+	return num
+}
+
+func (s Source) Seed(int64) {
+}
+
+type SyncReader struct {
+	io.Reader
+	sync.Mutex
+}
+
+func (r *SyncReader) Read(p []byte) (n int, err error) {
+	r.Lock()
+	defer r.Unlock()
+	return r.Reader.Read(p)
+}

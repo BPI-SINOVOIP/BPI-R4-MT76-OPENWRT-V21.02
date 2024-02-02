@@ -1,0 +1,35 @@
+diff --git a/target/linux/mediatek/image/Makefile b/target/linux/mediatek/image/Makefile
+index 52c266e..36deb6f 100644
+--- a/target/linux/mediatek/image/Makefile
++++ b/target/linux/mediatek/image/Makefile
+@@ -24,9 +24,21 @@ define Build/fdt-patch-dm-crypt
+ 		$(ROOTFS/$(FILESYSTEMS)/$(DEVICE_NAME))-hashed-summary-$(firstword $(DEVICE_DTS))
+ endef
+ 
++define Build/squashfs-encrypt
++	BIN=$(STAGING_DIR_HOST)/bin \
++	$(TOPDIR)/scripts/make-squashfs-encrypted.sh \
++	$(ROOTFS/$(FILESYSTEMS)/$(DEVICE_NAME)) \
++	$(ROOTFS/$(FILESYSTEMS)/$(DEVICE_NAME))-encrypted-$(firstword $(DEVICE_DTS)) \
++	$(ROE_KEY_DIR) \
++	$@
++endef
++
+ # build squashfs-hashed
+ define Build/squashfs-hashed
+-	$(CP) $(ROOTFS/$(FILESYSTEMS)/$(DEVICE_NAME)) $(ROOTFS/$(FILESYSTEMS)/$(DEVICE_NAME))-hashed-$(firstword $(DEVICE_DTS))
++	$(CP) $(if $(ROOTFS_ENCRYPT), \
++		$(ROOTFS/$(FILESYSTEMS)/$(DEVICE_NAME))-encrypted-$(firstword $(DEVICE_DTS)), \
++		$(ROOTFS/$(FILESYSTEMS)/$(DEVICE_NAME))) \
++		$(ROOTFS/$(FILESYSTEMS)/$(DEVICE_NAME))-hashed-$(firstword $(DEVICE_DTS))
+ 	$(TOPDIR)/scripts/make-squashfs-hashed.sh \
+ 		$(ROOTFS/$(FILESYSTEMS)/$(DEVICE_NAME))-hashed-$(firstword $(DEVICE_DTS)) \
+ 		$(STAGING_DIR_HOST) \
+@@ -71,6 +83,7 @@ endef
+ 
+ define Build/rootfs-encrypt
+ 	$(if $(ROOTFS_ENCRYPT),$(call Build/rfsk-encrypt))
++	$(if $(ROOTFS_ENCRYPT),$(call Build/squashfs-encrypt))
+ endef
+ 
+ # build signed fit

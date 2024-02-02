@@ -1,0 +1,47 @@
+From f3ed6cebb20914e0f0417f180fb0bff1fd1a73e2 Mon Sep 17 00:00:00 2001
+From: Yi-Chia Hsieh <yi-chia.hsieh@mediatek.com>
+Date: Sat, 12 Aug 2023 04:17:22 +0800
+Subject: [PATCH 1023/1044] mtk: wifi: mt76: mt7996: report tx and rx byte to
+ tpt_led
+
+---
+ mt7996/mcu.c | 15 +++++++++++----
+ 1 file changed, 11 insertions(+), 4 deletions(-)
+
+diff --git a/mt7996/mcu.c b/mt7996/mcu.c
+index fff5a826..5c695669 100644
+--- a/mt7996/mcu.c
++++ b/mt7996/mcu.c
+@@ -522,6 +522,8 @@ mt7996_mcu_rx_all_sta_info_event(struct mt7996_dev *dev, struct sk_buff *skb)
+ 		u8 ac;
+ 		u16 wlan_idx;
+ 		struct mt76_wcid *wcid;
++		struct mt76_phy *mphy;
++		u32 tx_bytes, rx_bytes;
+ 
+ 		switch (le16_to_cpu(res->tag)) {
+ 		case UNI_ALL_STA_TXRX_RATE:
+@@ -541,11 +543,16 @@ mt7996_mcu_rx_all_sta_info_event(struct mt7996_dev *dev, struct sk_buff *skb)
+ 			if (!wcid)
+ 				break;
+ 
++			mphy = mt76_dev_phy(&dev->mt76, wcid->phy_idx);
+ 			for (ac = 0; ac < IEEE80211_NUM_ACS; ac++) {
+-				wcid->stats.tx_bytes +=
+-					le32_to_cpu(res->adm_stat[i].tx_bytes[ac]);
+-				wcid->stats.rx_bytes +=
+-					le32_to_cpu(res->adm_stat[i].rx_bytes[ac]);
++				tx_bytes = le32_to_cpu(res->adm_stat[i].tx_bytes[ac]);
++				rx_bytes = le32_to_cpu(res->adm_stat[i].rx_bytes[ac]);
++
++				wcid->stats.tx_bytes += tx_bytes;
++				wcid->stats.rx_bytes += rx_bytes;
++
++				ieee80211_tpt_led_trig_tx(mphy->hw, tx_bytes);
++				ieee80211_tpt_led_trig_rx(mphy->hw, rx_bytes);
+ 			}
+ 			break;
+ 		case UNI_ALL_STA_TXRX_MSDU_COUNT:
+-- 
+2.18.0
+

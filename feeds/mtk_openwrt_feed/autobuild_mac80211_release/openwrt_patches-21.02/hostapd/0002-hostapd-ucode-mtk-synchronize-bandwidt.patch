@@ -1,0 +1,123 @@
+From 34205ed1077ac7e759cf112ec424966e48ad314f Mon Sep 17 00:00:00 2001
+From: Michael-CY Lee <michael-cy.lee@mediatek.com>
+Date: Mon, 11 Sep 2023 13:39:14 +0800
+Subject: [PATCH] ucode: mtk: synchronize bandwidth in AP/STA support
+
+Change-Id: I1ec83a1d218784de53509b771e2e5487a01e0da6
+---
+ .../network/services/hostapd/files/hostapd.uc | 40 +++++++++++++------
+ .../services/hostapd/files/wpa_supplicant.uc  |  5 +++
+ 2 files changed, 33 insertions(+), 12 deletions(-)
+
+diff --git a/package/network/services/hostapd/files/hostapd.uc b/package/network/services/hostapd/files/hostapd.uc
+index 43637ac7..7202a8df 100644
+--- a/package/network/services/hostapd/files/hostapd.uc
++++ b/package/network/services/hostapd/files/hostapd.uc
+@@ -58,6 +58,7 @@ start_disabled=1
+ function iface_freq_info(iface, config, params)
+ {
+ 	let freq = params.frequency;
++	let bw320_offset = params.bw320_offset;
+ 	if (!freq)
+ 		return null;
+ 
+@@ -66,25 +67,29 @@ function iface_freq_info(iface, config, params)
+ 		sec_offset = 0;
+ 
+ 	let width = 0;
+-	for (let line in config.radio.data) {
+-		if (!sec_offset && match(line, /^ht_capab=.*HT40/)) {
+-			sec_offset = null; // auto-detect
+-			continue;
+-		}
++	if (params.ch_width >= 0){
++		width = params.ch_width;
++	} else {
++		for (let line in config.radio.data) {
++			if (!sec_offset && match(line, /^ht_capab=.*HT40/)) {
++				sec_offset = null; // auto-detect
++				continue;
++			}
+ 
+-		let val = match(line, /^(vht_oper_chwidth|he_oper_chwidth|eht_oper_chwidth)=(\d+)/);
+-		if (!val)
+-			continue;
++			let val = match(line, /^(vht_oper_chwidth|he_oper_chwidth|eht_oper_chwidth)=(\d+)/);
++			if (!val)
++				continue;
+ 
+-		val = int(val[2]);
+-		if (val > width)
+-			width = val;
++			val = int(val[2]);
++			if (val > width)
++				width = val;
++		}
+ 	}
+ 
+ 	if (freq < 4000)
+ 		width = 0;
+ 
+-	return hostapd.freq_info(freq, sec_offset, width);
++	return hostapd.freq_info(freq, sec_offset, width, bw320_offset);
+ }
+ 
+ function iface_add(phy, config, phy_status)
+@@ -386,6 +391,8 @@ let main_obj = {
+ 			up: true,
+ 			frequency: 0,
+ 			sec_chan_offset: 0,
++			ch_width: -1,
++			bw320_offset: 1,
+ 			csa: true,
+ 			csa_count: 0,
+ 		},
+@@ -393,6 +400,15 @@ let main_obj = {
+ 			if (req.args.up == null || !req.args.phy)
+ 				return libubus.STATUS_INVALID_ARGUMENT;
+ 
++			hostapd.printf(`ucode: mtk: apsta state update`);
++			hostapd.printf(`    * phy: ${req.args.phy}`);
++			hostapd.printf(`    * up: ${req.args.up}`);
++			hostapd.printf(`    * freqeuncy: ${req.args.frequency}`);
++			hostapd.printf(`    * sec_chan_offset: ${req.args.sec_chan_offset}`);
++			hostapd.printf(`    * ch_width: ${req.args.ch_width}`);
++			hostapd.printf(`    * bw320_offset: ${req.args.bw320_offset}`);
++			hostapd.printf(`    * csa: ${req.args.csa}`);
++
+ 			let phy = req.args.phy;
+ 			let config = hostapd.data.config[phy];
+ 			if (!config || !config.bss || !config.bss[0] || !config.bss[0].ifname)
+diff --git a/package/network/services/hostapd/files/wpa_supplicant.uc b/package/network/services/hostapd/files/wpa_supplicant.uc
+index f8a3fcb5..c24ea03c 100644
+--- a/package/network/services/hostapd/files/wpa_supplicant.uc
++++ b/package/network/services/hostapd/files/wpa_supplicant.uc
+@@ -226,6 +226,7 @@ function iface_hostapd_notify(phy, ifname, iface, state)
+ 	let status = iface.status();
+ 	let msg = { phy: phy };
+ 
++	wpas.printf(`ucode: mtk: wpa_s in state ${state} notifies hostapd`);
+ 	switch (state) {
+ 	case "DISCONNECTED":
+ 	case "AUTHENTICATING":
+@@ -240,6 +241,8 @@ function iface_hostapd_notify(phy, ifname, iface, state)
+ 		msg.up = true;
+ 		msg.frequency = status.frequency;
+ 		msg.sec_chan_offset = status.sec_chan_offset;
++		msg.ch_width = status.ch_width;
++		msg.bw320_offset = status.bw320_offset;
+ 		break;
+ 	default:
+ 		return;
+@@ -256,6 +259,8 @@ function iface_channel_switch(phy, ifname, iface, info)
+ 		csa: true,
+ 		csa_count: info.csa_count ? info.csa_count - 1 : 0,
+ 		frequency: info.frequency,
++		ch_width: info.ch_width,
++		bw320_offset: info.bw320_offset,
+ 		sec_chan_offset: info.sec_chan_offset,
+ 	};
+ 	ubus.call("hostapd", "apsta_state", msg);
+-- 
+2.25.1
+

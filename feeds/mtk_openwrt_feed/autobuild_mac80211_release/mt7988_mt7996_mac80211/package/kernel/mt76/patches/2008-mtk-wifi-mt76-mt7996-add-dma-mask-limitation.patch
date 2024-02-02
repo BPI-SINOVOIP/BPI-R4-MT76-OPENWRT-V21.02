@@ -1,0 +1,57 @@
+From 0a1fef8b518288d0fed1df86a95fdf04fc611db8 Mon Sep 17 00:00:00 2001
+From: "sujuan.chen" <sujuan.chen@mediatek.com>
+Date: Thu, 20 Jul 2023 10:25:50 +0800
+Subject: [PATCH 2008/2028] mtk: wifi: mt76: mt7996: add dma mask limitation
+
+Signed-off-by: sujuan.chen <sujuan.chen@mediatek.com>
+---
+ dma.c  | 4 ++--
+ mmio.c | 4 ++--
+ 2 files changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/dma.c b/dma.c
+index 69333769..5bff27dd 100644
+--- a/dma.c
++++ b/dma.c
+@@ -490,7 +490,7 @@ mt76_dma_get_buf(struct mt76_dev *dev, struct mt76_queue *q, int idx,
+ 		} else {
+ 			struct mt76_queue_buf qbuf;
+ 
+-			buf = page_frag_alloc(&q->rx_page, q->buf_size, GFP_ATOMIC);
++			buf = page_frag_alloc(&q->rx_page, q->buf_size, GFP_ATOMIC | GFP_DMA32);
+ 			if (!buf)
+ 				return NULL;
+ 
+@@ -712,7 +712,7 @@ mt76_dma_rx_fill(struct mt76_dev *dev, struct mt76_queue *q)
+ 		if (mt76_queue_is_wed_rro_ind(q))
+ 			goto done;
+ 
+-		buf = page_frag_alloc(&q->rx_page, q->buf_size, GFP_ATOMIC);
++		buf = page_frag_alloc(&q->rx_page, q->buf_size, GFP_ATOMIC | GFP_DMA32);
+ 		if (!buf)
+ 			break;
+ 
+diff --git a/mmio.c b/mmio.c
+index b792a7bd..269fd932 100644
+--- a/mmio.c
++++ b/mmio.c
+@@ -144,14 +144,14 @@ u32 mt76_mmio_wed_init_rx_buf(struct mtk_wed_device *wed, int size)
+ 	for (i = 0; i < size; i++) {
+ 		struct mt76_rxwi_cache *r = mt76_get_rxwi(dev);
+ 		dma_addr_t addr;
+-		struct page *page;
+ 		int token;
+ 		void *ptr;
+ 
+ 		if (!r)
+ 			goto unmap;
+ 
+-		ptr = page_frag_alloc(&wed->rx_buf_ring.rx_page, length, GFP_ATOMIC);
++		ptr = page_frag_alloc(&wed->rx_buf_ring.rx_page, length,
++				      GFP_ATOMIC | GFP_DMA32);
+ 		if (!ptr) {
+ 			mt76_put_rxwi(dev, r);
+  			goto unmap;
+-- 
+2.18.0
+

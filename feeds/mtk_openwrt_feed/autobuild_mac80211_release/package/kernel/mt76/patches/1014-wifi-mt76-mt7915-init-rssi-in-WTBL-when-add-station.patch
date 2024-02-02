@@ -1,0 +1,34 @@
+From 60d4943ff781d30aaedb00338f8daa5653e9f887 Mon Sep 17 00:00:00 2001
+From: Peter Chiu <chui-hao.chiu@mediatek.com>
+Date: Sun, 24 Apr 2022 10:07:00 +0800
+Subject: [PATCH 26/76] wifi: mt76: mt7915: init rssi in WTBL when add station
+
+---
+ mt7915/main.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/mt7915/main.c b/mt7915/main.c
+index c85a919..d73cf9f 100644
+--- a/mt7915/main.c
++++ b/mt7915/main.c
+@@ -762,6 +762,7 @@ int mt7915_mac_sta_add(struct mt76_dev *mdev, struct ieee80211_vif *vif,
+ 	struct mt7915_phy *phy = ext_phy ? mt7915_ext_phy(dev) : &dev->phy;
+ #endif
+ 	int ret, idx;
++	u32 addr;
+ 
+ 	idx = mt76_wcid_alloc(dev->mt76.wcid_mask, MT7915_WTBL_STA);
+ 	if (idx < 0)
+@@ -786,6 +787,9 @@ int mt7915_mac_sta_add(struct mt76_dev *mdev, struct ieee80211_vif *vif,
+ 	if (ret)
+ 		return ret;
+ 
++	addr = mt7915_mac_wtbl_lmac_addr(dev, msta->wcid.idx, 30);
++	mt76_rmw_field(dev, addr, GENMASK(7, 0), 0xa0);
++
+ #ifdef CONFIG_MTK_VENDOR
+ 	mt7915_vendor_amnt_sta_remove(mvif->phy, sta);
+ #endif
+-- 
+2.18.0
+

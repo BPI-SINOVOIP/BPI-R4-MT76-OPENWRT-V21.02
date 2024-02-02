@@ -1,0 +1,39 @@
+diff --git a/include/kernel-build.mk b/include/kernel-build.mk
+index 9dfb19c..e2d97da 100644
+--- a/include/kernel-build.mk
++++ b/include/kernel-build.mk
+@@ -184,4 +184,10 @@ define BuildKernel
+ 
+   prereq: image-prereq
+ 
++  install-image:
++	@echo Only install image........
++	+$(MAKE) -C image compile install TARGET_BUILD=
++
++  clean-linux: FORCE
++	rm -rf $(LINUX_DIR)
+ endef
+diff --git a/rules.mk b/rules.mk
+index 8b2424f..1787d75 100644
+--- a/rules.mk
++++ b/rules.mk
+@@ -103,7 +103,7 @@ ifdef CONFIG_MIPS64_ABI
+   endif
+ endif
+ 
+-DEFAULT_SUBDIR_TARGETS:=clean download prepare compile update refresh prereq dist distcheck configure check check-depends
++DEFAULT_SUBDIR_TARGETS:=clean download prepare compile update refresh prereq dist distcheck configure check check-depends install-image clean-linux
+ 
+ define DefaultTargets
+ $(foreach t,$(DEFAULT_SUBDIR_TARGETS) $(1),
+diff --git a/target/linux/Makefile b/target/linux/Makefile
+index 3a70b80..e3fe1ca 100644
+--- a/target/linux/Makefile
++++ b/target/linux/Makefile
+@@ -9,5 +9,5 @@ include $(INCLUDE_DIR)/target.mk
+ 
+ export TARGET_BUILD=1
+ 
+-prereq clean download prepare compile install oldconfig menuconfig nconfig xconfig update refresh: FORCE
++prereq clean download prepare compile install oldconfig menuconfig nconfig xconfig update refresh install-image clean-linux: FORCE
+ 	@+$(NO_TRACE_MAKE) -C $(BOARD) $@

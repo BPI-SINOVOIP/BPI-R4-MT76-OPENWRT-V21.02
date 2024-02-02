@@ -1,0 +1,68 @@
+From 2754f1c8c5d3aad42f25b86b63f322f5b6862857 Mon Sep 17 00:00:00 2001
+From: "sujuan.chen" <sujuan.chen@mediatek.com>
+Date: Fri, 6 Oct 2023 14:01:41 +0800
+Subject: [PATCH 2005/2028] mtk: wifi: mt76 : wed : change pcie0 R5 to pcie1 to
+ get 6G ICS
+
+---
+ mt7996/dma.c  | 4 ++++
+ mt7996/init.c | 6 ++----
+ mt7996/mmio.c | 5 ++++-
+ 3 files changed, 10 insertions(+), 5 deletions(-)
+
+diff --git a/mt7996/dma.c b/mt7996/dma.c
+index 8e29ab06..40ab65f8 100644
+--- a/mt7996/dma.c
++++ b/mt7996/dma.c
+@@ -537,6 +537,10 @@ int mt7996_dma_init(struct mt7996_dev *dev)
+ 	if (mt7996_band_valid(dev, MT_BAND2)) {
+ 		/* rx data queue for mt7996 band2 */
+ 		rx_base = MT_RXQ_RING_BASE(MT_RXQ_BAND2) + hif1_ofs;
++		if (mtk_wed_device_active(wed_hif2) && mtk_wed_get_rx_capa(wed_hif2)) {
++			dev->mt76.q_rx[MT_RXQ_BAND2].flags = MT_WED_Q_RX(0);
++			dev->mt76.q_rx[MT_RXQ_BAND2].wed = wed_hif2;
++		}
+ 		ret = mt76_queue_alloc(dev, &dev->mt76.q_rx[MT_RXQ_BAND2],
+ 				       MT_RXQ_ID(MT_RXQ_BAND2),
+ 				       MT7996_RX_RING_SIZE,
+diff --git a/mt7996/init.c b/mt7996/init.c
+index 00063e72..d908c795 100644
+--- a/mt7996/init.c
++++ b/mt7996/init.c
+@@ -638,10 +638,8 @@ static int mt7996_register_phy(struct mt7996_dev *dev, struct mt7996_phy *phy,
+ 		goto error;
+ 
+ 	if (wed == &dev->mt76.mmio.wed_hif2 && mtk_wed_device_active(wed)) {
+-		u32 irq_mask = dev->mt76.mmio.irqmask | MT_INT_TX_DONE_BAND2;
+-
+-		mt76_wr(dev, MT_INT1_MASK_CSR, irq_mask);
+-		mtk_wed_device_start(&dev->mt76.mmio.wed_hif2, irq_mask);
++		mt76_wr(dev, MT_INT_PCIE1_MASK_CSR, MT_INT_TX_RX_DONE_EXT);
++		mtk_wed_device_start(&dev->mt76.mmio.wed_hif2, MT_INT_TX_RX_DONE_EXT);
+ 	}
+ 
+ 	return 0;
+diff --git a/mt7996/mmio.c b/mt7996/mmio.c
+index d3d34f04..4814897c 100644
+--- a/mt7996/mmio.c
++++ b/mt7996/mmio.c
+@@ -532,12 +532,15 @@ static void mt7996_irq_tasklet(struct tasklet_struct *t)
+ 					       dev->mt76.mmio.irqmask);
+ 		if (intr1 & MT_INT_RX_TXFREE_EXT)
+ 			napi_schedule(&dev->mt76.napi[MT_RXQ_TXFREE_BAND2]);
++
++		if (intr1 & MT_INT_RX_DONE_BAND2_EXT)
++			napi_schedule(&dev->mt76.napi[MT_RXQ_BAND2]);
+ 	}
+ 
+ 	if (mtk_wed_device_active(wed)) {
+ 		mtk_wed_device_irq_set_mask(wed, 0);
+ 		intr = mtk_wed_device_irq_get(wed, dev->mt76.mmio.irqmask);
+-		intr |= (intr1 & ~MT_INT_RX_TXFREE_EXT);
++		intr |= (intr1 & ~MT_INT_TX_RX_DONE_EXT);
+ 	} else {
+ 		mt76_wr(dev, MT_INT_MASK_CSR, 0);
+ 		if (dev->hif2)
+-- 
+2.18.0
+
