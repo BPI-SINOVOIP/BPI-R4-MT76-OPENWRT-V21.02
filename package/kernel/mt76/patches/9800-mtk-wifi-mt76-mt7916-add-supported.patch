@@ -1,0 +1,86 @@
+diff -urN a/mt7915/dma.c b/mt7915/dma.c
+--- a/mt7915/dma.c	2024-04-24 21:01:39.092680085 +0800
++++ b/mt7915/dma.c	2024-04-24 21:02:26.061123970 +0800
+@@ -624,13 +624,13 @@
+ 	}
+ 
+ 	for (i = 0; i < __MT_MCUQ_MAX; i++)
+-		mt76_queue_reset(dev, dev->mt76.q_mcu[i]);
++		mt76_queue_reset(dev, dev->mt76.q_mcu[i], true);
+ 
+ 	mt76_for_each_q_rx(&dev->mt76, i) {
+ 		if (mt76_queue_is_wed_tx_free(&dev->mt76.q_rx[i]))
+ 			continue;
+ 
+-		mt76_queue_reset(dev, &dev->mt76.q_rx[i]);
++		mt76_queue_reset(dev, &dev->mt76.q_rx[i], true);
+ 	}
+ 
+ 	mt76_tx_status_check(&dev->mt76, true);
+diff -urN a/mt7915/init.c b/mt7915/init.c
+--- a/mt7915/init.c	2024-04-24 21:01:45.044735993 +0800
++++ b/mt7915/init.c	2024-04-24 21:02:33.157191563 +0800
+@@ -282,6 +282,7 @@
+ 	int nss_delta = mt76_tx_power_nss_delta(n_chains);
+ 	int pwr_delta = mt7915_eeprom_get_power_delta(dev, sband->band);
+ 	struct mt76_power_limits limits;
++	struct mt76_power_path_limits limits_path;
+ 
+ 	for (i = 0; i < sband->n_channels; i++) {
+ 		struct ieee80211_channel *chan = &sband->channels[i];
+@@ -298,6 +299,7 @@
+ 		target_power += pwr_delta;
+ 		target_power = mt76_get_rate_power_limits(phy->mt76, chan,
+ 							  &limits,
++							  &limits_path,
+ 							  target_power);
+ 		target_power += nss_delta;
+ 		target_power = DIV_ROUND_UP(target_power, 2);
+diff -urN a/mt7915/mcu.c b/mt7915/mcu.c
+--- a/mt7915/mcu.c	2024-04-24 21:01:53.764818126 +0800
++++ b/mt7915/mcu.c	2024-04-24 21:02:39.653253522 +0800
+@@ -3259,12 +3259,13 @@
+ 	};
+ 	struct mt76_power_limits limits_array;
+ 	s8 *la = (s8 *)&limits_array;
++	struct mt76_power_path_limits la_path = {};
+ 	int i, idx;
+ 	int tx_power;
+ 
+ 	tx_power = mt7915_get_power_bound(phy, hw->conf.power_level);
+ 	tx_power = mt76_get_rate_power_limits(mphy, mphy->chandef.chan,
+-					      &limits_array, tx_power);
++					      &limits_array, &la_path, tx_power);
+ 	mphy->txpower_cur = tx_power;
+ 
+ 	for (i = 0, idx = 0; i < ARRAY_SIZE(mt7915_sku_group_len); i++) {
+diff -urN a/mt7915/mmio.c b/mt7915/mmio.c
+--- a/mt7915/mmio.c	2024-04-24 21:02:00.204878866 +0800
++++ b/mt7915/mmio.c	2024-04-24 21:02:47.653329971 +0800
+@@ -628,7 +628,7 @@
+ 					 MT_RXQ_WED_RING_BASE;
+ 		wed->wlan.wpdma_rx_glo = pci_resource_start(pci_dev, 0) +
+ 					 MT_WPDMA_GLO_CFG;
+-		wed->wlan.wpdma_rx = pci_resource_start(pci_dev, 0) +
++		wed->wlan.wpdma_rx[0] = pci_resource_start(pci_dev, 0) +
+ 				     MT_RXQ_WED_DATA_RING_BASE;
+ 	} else {
+ 		struct platform_device *plat_dev = pdev_ptr;
+@@ -648,7 +648,7 @@
+ 		wed->wlan.wpdma_tx = res->start + MT_TXQ_WED_RING_BASE;
+ 		wed->wlan.wpdma_txfree = res->start + MT_RXQ_WED_RING_BASE;
+ 		wed->wlan.wpdma_rx_glo = res->start + MT_WPDMA_GLO_CFG;
+-		wed->wlan.wpdma_rx = res->start + MT_RXQ_WED_DATA_RING_BASE;
++		wed->wlan.wpdma_rx[0] = res->start + MT_RXQ_WED_DATA_RING_BASE;
+ 	}
+ 	wed->wlan.nbuf = MT7915_HW_TOKEN_SIZE;
+ 	wed->wlan.tx_tbit[0] = is_mt7915(&dev->mt76) ? 4 : 30;
+@@ -886,7 +886,7 @@
+ 				SURVEY_INFO_TIME_RX |
+ 				SURVEY_INFO_TIME_BSS_RX,
+ 		.token_size = MT7915_TOKEN_SIZE,
+-		.rx_token_size = MT7915_RX_TOKEN_SIZE;
++		.rx_token_size = MT7915_RX_TOKEN_SIZE,
+ 		.tx_prepare_skb = mt7915_tx_prepare_skb,
+ 		.tx_complete_skb = mt76_connac_tx_complete_skb,
+ 		.rx_skb = mt7915_queue_rx_skb,
