@@ -565,6 +565,8 @@
                         pinctrl-names = "i2p5gbe-led";
                         pinctrl-0 = <&i2p5gbe_led0_pins>;
                         reg = <15>;
+			power-domains = <&topmisc MT7988_POWER_DOMAIN_ETH2P5>;
+			power-domain-names = "i2p5gbe-pd";
                         compatible = "ethernet-phy-ieee802.3-c45";
                         phy-mode = "xgmii";
                 };
